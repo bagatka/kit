@@ -67,6 +67,9 @@ development for builds Xcode installs, production for TestFlight and the App Sto
 
 ## Decisions and constraints
 
+- **Trusts its caller, its key, and APNs,** reached over TLS; an answer of another shape is still a
+  failure, never a guess. **Doesn't trust device tokens,** which come from apps through the caller
+  and are checked before any request.
 - **Every push type, and its topic.** `pushType` is APNs's `apns-push-type`; the topic is the bundle
   ID with the suffix that type needs (`.voip`, `.push-type.liveactivity`, `.location-query`, and the
   rest), which this package writes, so a push can't name the wrong one. `mdm`, whose topic comes

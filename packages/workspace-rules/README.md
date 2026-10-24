@@ -118,6 +118,10 @@ by folder, as plain data to print or count.
 
 ## Decisions and constraints
 
+- **Trusts the repository it checks,** and the people who review its changes: it reports mistakes,
+  and isn't a defense against a hostile pull request. Anything outside the supported shape is still
+  refused, never skipped. Reopen if the check must stand alone against changes from strangers that
+  no one reviews.
 - Reads the root `package.json`, the folders its patterns name, and each package's `package.json`;
   it follows no link and changes nothing. `readLink` tells a link from anything else, so a link is
   found without being followed.

@@ -52,6 +52,8 @@ as on a canvas. The same text always gives the same code.
 
 ## Decisions and constraints
 
+- **Doesn't trust the text.** A code may hold whatever a person typed or a link carries: any text is
+  encoded, or refused as too long, in time linear in its length. **Trusts its caller.**
 - **One kind of code: byte mode at level M,** in the smallest of versions 1 to 40 that holds the
   text: up to 2331 bytes of UTF-8, and from 21 to 177 modules a side. Level M survives about 15% of
   the code being unreadable, and is what most generators make. Not supported: the numeric,

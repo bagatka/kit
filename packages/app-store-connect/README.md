@@ -111,6 +111,8 @@ A product that reads often and writes rarely can hold two clients, one per key, 
 
 ## Decisions and constraints
 
+- **Trusts its caller, its key, and Apple's API,** reached over TLS; answers still decode through
+  Schemas, and one of another shape is a failure, never a guess.
 - **A bad key fails the client, never a request.** A key that isn't P-256 in PKCS #8, a key ID
   that isn't 10 capital letters and digits, or an issuer ID that isn't a UUID fails `make` and
   `layer` with `AppStoreConnectCredentialsInvalid`, sending nothing.

@@ -59,6 +59,9 @@ do {
 
 ## Decisions and constraints
 
+- **Doesn't trust the document's text.** A document is usually the product's own, but no title,
+  description or name in it can write code, and what isn't supported is refused. **Trusts its
+  caller,** who chooses the document.
 - **What it reads, as Effect's `HttpApi` writes it:** OpenAPI 3.1; named objects, string enums, and
   unions of named objects told apart by the one constant property they share (such as `_tag`, and a
   `discriminator` that names it); arrays, dictionaries, free-form JSON (`{}`), nullable values

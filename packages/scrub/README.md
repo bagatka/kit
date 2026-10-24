@@ -95,6 +95,8 @@ Nothing.
 
 ## Decisions and constraints
 
+- **Doesn't trust the text.** It is whatever logs, errors and prompts hold, and the guarantees below
+  hold for any of it. **Trusts its caller,** and the prefixes of its own keys that the caller gives.
 - **Guarantees, for any input,** each with a test: time linear in the text's length, whatever the
   text is made of; scrubbing goes on to the end of the text on V8 and on JavaScriptCore, past runs
   of 16 million characters (every repetition is bounded or one character class, and no group

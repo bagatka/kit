@@ -57,6 +57,11 @@ whatever could go wrong with the key, importing it found.
 
 ## Decisions and constraints
 
+- **Trusts its caller, and the caller's key.** Nothing it reads comes from others: the key, the
+  header and the claims are the caller's, and code given a `SigningKey` can sign with it but never
+  take the key. A key its owner broke is the owner's: Web Crypto on Node signs with an RSA exponent
+  of 1, which lets anyone holding the public key forge that key's tokens, where Bun's refuses it; no
+  issuer makes such a key. Reopen if a product signs with keys that other people hand it.
 - **Two algorithms, the ones services ask for.** ES256 (Apple's APNs, App Store Connect, Sign in with
   Apple's client secret) and RS256 (GitHub Apps, Google service accounts). One package for both:
   they share the compact JWS and differ only in the key and the signature.

@@ -116,6 +116,10 @@ answers short. For decisions, the Clef model is `CloudflareDecisionModel.layer`'
 
 ## Decisions and constraints
 
+- **Trusts its caller and the binding,** Cloudflare's own runtime. **Doesn't trust what a model
+  writes,** which a prompt can steer: `generateObject` decodes it with the caller's schema, an
+  answer in a shape Workers AI doesn't document is `InvalidResponseError`, and what the text says is
+  the caller's to judge.
 - **The binding is structural.** `WorkersAiBinding` is the one method used, `run`, so the package
   needs no Cloudflare types and tests pass a fake. `bun run check` proves that Cloudflare's `Ai`
   binding type fits it.

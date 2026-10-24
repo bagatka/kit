@@ -49,6 +49,10 @@ sketch is a Schema, so it can be stored and sent as it is.
 
 ## Decisions and constraints
 
+- **Doesn't trust values or stored sketches.** Any number may be given, and what isn't a
+  non-negative finite value is refused and counted; a sketch read back or sent by others is decoded
+  by `QuantileSketch`, which refuses one made for another accuracy or with buckets no finite value
+  falls in, so none has more than 18,264. **Trusts its caller.**
 - **DDSketch with logarithmic buckets and no collapsing** (Masson, Rim and Lee, 2019). Every
   quantile is within 2% of the true value, and merging is exact: merging sketches gives the sketch of
   all their values together, in any order and grouping, when they were made on one engine. V8 and

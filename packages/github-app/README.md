@@ -75,6 +75,9 @@ differ per deployment, and per app.
 
 ## Decisions and constraints
 
+- **Trusts its caller, the app's key and secrets, and GitHub's API,** reached over TLS. **Doesn't
+  trust** a webhook delivery until its signature checks, or the `installation_id` that GitHub adds
+  to the setup URL, which anyone can forge.
 - **A bad key fails the client, never a request.** A private key that isn't an RSA key of 2048 to
   8192 bits, in PKCS #1 as GitHub gives it or in PKCS #8, or an app ID that isn't a whole number
   or a client ID, fails `make` and `layer` with `GitHubAppCredentialsInvalid`, sending nothing.

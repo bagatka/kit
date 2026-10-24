@@ -60,6 +60,9 @@ lowercase hex, `TraceId` and `SpanId`; times are nanoseconds as `bigint`; attrib
 
 ## Decisions and constraints
 
+- **Doesn't trust what it decodes.** An export comes from apps and services the receiver doesn't
+  control, and decoding keeps the guarantees below for any bytes. **Trusts its caller,** whose data
+  it encodes.
 - **Its own protobuf reader and writer, for the messages OTLP uses.** No dependency: the wire format
   takes a few hundred lines. Fields it doesn't know, such as ones OTLP adds later, are skipped, as
   protobuf requires, so newer exporters still decode; they aren't written back.

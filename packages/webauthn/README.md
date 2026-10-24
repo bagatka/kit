@@ -79,6 +79,10 @@ What only the caller can do, which the checks rely on:
 
 ## Decisions and constraints
 
+- **Trusts its caller and what the caller keeps:** the challenge, the site, its origins, and the
+  stored passkeys. **Doesn't trust anything a browser sends:** registration and sign-in answers
+  arrive as untrusted JSON and are decoded here, and every guarantee (nobody signs in as someone
+  else, a passkey stays bound to its account) holds against them.
 - **The WebAuthn Level 3 specification's words and steps.** Registration (section 7.1) and
   authentication (section 7.2) are checked step by step: the client data's type, challenge, origin,
   `crossOrigin` and `topOrigin`; the site's hash; the person present and verified; the backup flags;

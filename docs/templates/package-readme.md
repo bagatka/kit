@@ -44,7 +44,10 @@ The values its layer takes, and which of them differ between deployments.
 
 ## Decisions and constraints
 
-Non-obvious choices, the standards it follows, the limits it keeps on hostile input, and
-constraints a future change must respect.
+First, what it trusts and what it doesn't (`AGENTS.md`, section 9): its caller, and the caller's
+keys and settings, are trusted; what others send is not, and every guarantee holds against it. Then
+the non-obvious choices, the standards it follows, the limits it keeps on hostile input, and
+constraints a future change must respect, each with its reason, and, where a decision was argued
+over, what would reopen it.
 
 Delete the sections that don't apply.
