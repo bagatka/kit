@@ -129,7 +129,8 @@ import type { PluginAPI } from '@ampcode/plugin'
 export const description = 'Commits and pushes bagatka/kit-memory at the end of each turn'
 
 const resume = '__RESUME__'
-const conflict = 'kit-memory conflict:'
+// The turn shows as the user's message, so it says first who sent it.
+const conflict = '[Automated message from the kit-memory plugin, not from you] kit-memory conflict:'
 
 export default function (amp: PluginAPI) {
 	amp.on('agent.end', async (event, ctx) => {
