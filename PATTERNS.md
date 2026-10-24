@@ -271,7 +271,7 @@ The configuration files are the specification; this entry says what each one own
 | `tools/src/published-manifest.ts` | What npm's `package.json` says |
 | `.github/workflows/check.yml` | CI: `bun run check` and `bun run test` on every push |
 | `.github/workflows/publish.yml` | Publishing to npm, and how npm signs it in |
-| `flake.nix`, `flake.lock` | Bun, Node, Git |
+| `flake.nix`, `flake.lock` | Bun and Node |
 
 - **Every Effect diagnostic that is on fails the build,** suggestions included. Rules are turned
   off only in their config file, with a one-line reason, scoped to the paths that need it.

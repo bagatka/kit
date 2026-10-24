@@ -1,5 +1,5 @@
 #!/bin/sh
-# Opens a shell with the pinned toolchain from flake.nix (Bun, Node, Git). With arguments, runs
+# Opens a shell with the pinned toolchain from flake.nix (Bun, Node). With arguments, runs
 # them in that toolchain instead: `./dev bun run check`.
 set -eu
 

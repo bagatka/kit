@@ -69,6 +69,8 @@ as on a canvas. The same text always gives the same code.
   module, for 5,325 texts compared, and zxing-cpp, a decoder of its own, read each of them back.
   Tests hold qrcodegen's code at every version and for every mask, and for each detail of the rules
   that decides one; `test/fixtures/capture-reference.py` captures them with `uv run`, on any machine.
+  uv isn't in `./dev`'s shell: install it as https://docs.astral.sh/uv/getting-started/installation/
+  says, and it fetches the Python and the packages the program names.
 - **UTF-8 without an ECI header,** as most encoders write it and phones' cameras read it. A lone
   surrogate, which UTF-8 can't hold, is encoded as U+FFFD, as `TextEncoder` does.
 - **Rows of rectangles:** `qrCodePath` draws each run of dark modules along a row as one rectangle,

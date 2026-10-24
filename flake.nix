@@ -24,22 +24,19 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          # No C compiler: every dependency ships built, and it is a third of the shell's download.
+          # Only what `bun run check`, `bun run test` and `bun run build` run, as the shell is every
+          # orb's download. No C compiler: every dependency ships built, and it was a third of it.
+          # No Git: every machine that cloned the repository has one, and nothing needs a pinned
+          # version; Nix's Git brings Perl, almost half the shell. No Python or uv: they only run
+          # programs that capture test fixtures by hand, such as qr-code's, which say how.
           default = pkgs.mkShellNoCC {
             packages = [
               # Installs packages and runs the repository's programs.
               pkgs.bun
-              pkgs.git
 
-              # Vitest and the check that npm's packages install and import run on Node: its newest
-              # release, which CI's `node-version` names exactly.
+              # Vitest, `npm pack`, and the check that npm's packages install and import run on
+              # Node: its newest release, which CI's `node-version` names exactly.
               pkgs.nodejs_latest
-
-              # The programs that capture test fixtures from other implementations, such as
-              # qr-code's from qrcodegen: Python's newest release, and uv, which installs the exact
-              # packages each program names.
-              pkgs.python315
-              pkgs.uv
             ];
           };
         }
