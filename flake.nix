@@ -24,7 +24,8 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          default = pkgs.mkShell {
+          # No C compiler: every dependency ships built, and it is a third of the shell's download.
+          default = pkgs.mkShellNoCC {
             packages = [
               # Installs packages and runs the repository's programs.
               pkgs.bun
