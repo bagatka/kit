@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Prepares a fresh Amp orb (https://ampcode.com/docs/orbs) with the toolchain flake.nix pins, so
+# flake.nix stays the one list of tools: every login shell started in the repository, which is how
+# Amp and orb services start, enters the flake's development environment. Runs again on a warm
+# orb, so each step is cheap when it is already done.
+set -euo pipefail
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$repo_root"
+
+step() {
+  local started=$SECONDS
+  printf '==> %s\n' "$1"
+  shift
+  "$@"
+  printf '    done in %ss\n' "$((SECONDS - started))"
+}
+
+nix_bin="$(command -v nix)" || {
+  printf '%s\n' 'error: the orb has no Nix; flake.nix needs it' >&2
+  exit 127
+}
+
+# Builds or downloads the environment once, so the first login shell doesn't.
+build_environment() {
+  "$nix_bin" --extra-experimental-features 'nix-command flakes' print-dev-env "$repo_root" >/dev/null
+}
+step "Development environment from flake.nix" build_environment
+
+# `print-dev-env`, not `nix develop`: it exports the environment into the login shell itself
+# instead of starting a nested one. Takes about 0.2s once the environment is built.
+# The block is replaced on every run, so a changed hook reaches orbs set up before the change.
+add_profile_hook() {
+  local begin="# >>> bagatka/kit: flake.nix's development environment" end="# <<< bagatka/kit"
+  touch "$HOME/.bash_profile"
+  sed -i "\|^$begin\$|,\|^$end\$|d" "$HOME/.bash_profile"
+  cat >>"$HOME/.bash_profile" <<EOF
+$begin
+if [[ -z "\${IN_NIX_SHELL:-}" && ( "\$PWD" == "$repo_root" || "\$PWD" == "$repo_root"/* ) ]]; then
+  eval "\$("$nix_bin" --extra-experimental-features 'nix-command flakes' --option warn-dirty false print-dev-env "$repo_root")"
+fi
+$end
+EOF
+}
+step "Login shells enter the environment" add_profile_hook
+
+# Also runs postinstall, `effect-tsgo patch`, which puts Effect's diagnostics into the compiler.
+step "Dependencies from bun.lock" ./dev bun install --frozen-lockfile
