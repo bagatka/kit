@@ -53,6 +53,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     container: swift:6.4-noble@sha256:19cbe56bdaec1918f7cf5fdeba42b9bd55bdd8a6149c9990d0e0e3a89a127d63
+    # In a container, steps run in `sh` unless a shell is named, and `sh` has no `pipefail`.
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
