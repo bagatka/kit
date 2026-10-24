@@ -1,4 +1,4 @@
-import { Console, Effect, FileSystem, Path, Schema } from "effect"
+import { Console, Effect, FileSystem, Path, PlatformError, Schema } from "effect"
 import { Command } from "effect/cli"
 
 import { runToEnd } from "./run-to-end.ts"
@@ -27,9 +27,16 @@ export const swift = Command.make("swift", {}, () =>
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const folder = yield* fs.makeTempDirectoryScoped({ prefix: "bagatka-kit-swift-" }).pipe(Effect.orDie)
-    const viaXcode = yield* runToEnd("xcrun", ["--find", "swiftc"], ".").pipe(Effect.option)
-    const [command, ...prefix] =
-      viaXcode._tag === "Some" && viaXcode.value.exitCode === 0 ? ["xcrun", "swiftc"] : ["swiftc"]
+    // `runToEnd` dies when a program is missing: only that, `xcrun` not found, means "not a Mac".
+    const viaXcode = yield* runToEnd("xcrun", ["--find", "swiftc"], ".").pipe(
+      Effect.map((found) => found.exitCode === 0),
+      Effect.catchDefect((defect) =>
+        PlatformError.isPlatformError(defect) && defect.reason._tag === "NotFound"
+          ? Effect.succeed(false)
+          : Effect.die(defect),
+      ),
+    )
+    const [command, ...prefix] = viaXcode ? ["xcrun", "swiftc"] : ["swiftc"]
     const swiftc = (args: ReadonlyArray<string>) => runToEnd(command ?? "swiftc", [...prefix, ...args], ".")
 
     const problems: Array<string> = []
