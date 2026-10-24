@@ -650,6 +650,8 @@ conflict.
   `@effect/vitest`, Oxlint and Oxfmt, Nix. Packages run in every runtime their callers use:
   Cloudflare Workers, browsers, Deno, Bun, and Node. They compile without any platform's types.
 - **Environment:** `./dev` (Nix) opens a shell with the pinned Bun, Node, and Git.
+- **Memory in Amp orbs:** `.agents/resume` clones the private bagatka/kit-memory, loads it through
+  `~/.config/amp/AGENTS.md`, and adds a plugin that pushes memory at the end of each turn.
 - **Commands:**
   - Install dependencies: `bun install`
   - Everything CI checks (types and Effect diagnostics, lint, format, the workspace rules,
