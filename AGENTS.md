@@ -627,8 +627,14 @@ conflict.
 - **Packages extend Effect.** Each one is what Effect doesn't have built in, made the way Effect's
   own are (services, layers, Schemas, `AiError`), and uses Effect's own for everything Effect has,
   such as `Headers.parseRetryAfter` or `@effect/ai-cloudflare`'s `CloudflareClient`. Check Effect
-  before solving anything here; when Effect adds what a package does, the package moves to Effect's
-  and retires its own.
+  before solving anything here, Effect's own packages on npm (`@effect/*`) included; when Effect adds
+  what a package does, the package moves to Effect's and retires its own.
+- **A name says what a package gives, and how,** next to Effect's own: `@effect/ai-cloudflare`
+  reaches Workers AI over REST, so the package that reaches it through a Worker's binding is
+  `@bagatka/ai-cloudflare-binding`.
+- **Any machine, no vendor by accident.** Tests, fixtures, and tools run on Linux, macOS, and
+  Windows. A vendor is named only in a package about that vendor (`apns`, `app-store-connect`),
+  never as a test's reference or a tool's requirement.
 - **Dependencies at their latest versions,** runtimes too: Node's newest release, not its LTS, and
   the newest Bun. An update is its own change that reads the changelogs, adopts what replaces our
   own code, and runs every check.
