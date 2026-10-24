@@ -350,6 +350,14 @@ working in that package. Don't inventory the whole repository.
 **Ask only when it matters.** Ask when missing information would materially change the outcome or
 its safety. Otherwise, state the simplest reasonable assumption and proceed.
 
+**Answers change for reasons, not for questions.** A decision is written down with its reason, where
+the part it concerns keeps its decisions (its README's "Decisions and constraints", or a review),
+and a recommendation starts from it. A follow-up question, such as "are you sure?" or "explain
+more", asks for evidence: check again for real, then show what the answer rests on. If the check
+finds a fact the answer missed, a mistake in its reasoning, or a misunderstanding of what was asked,
+change the answer, say which, and update the record in the same change. If it finds none, keep the
+answer and show why. A recorded decision is where reasoning starts, not a position to defend.
+
 **Let the compiler review first.** `bun run check` runs the type checker with Effect's diagnostics,
 the linter, and the architecture check; where there is an app, `bun run check:ios` does the same for
 it. They are the same commands for people, agents, and CI. A diagnostic is a finding, not noise: fix
@@ -416,6 +424,13 @@ These hold at every level, whatever the scope.
   spellings, which edge cases are handled) grows only with a real need from a product, never
   because a review can imagine one: a review finding that isn't a broken guarantee is answered by
   saying it isn't supported, in the contract.
+- **A guarantee says whom it holds against.** Each package says what it trusts: its caller, the
+  caller's keys and settings, and code in the same process. What others send is untrusted. A
+  guarantee holds against everything untrusted. A failure that needs a trusted party to break their
+  own setup, such as a weak key of their own, isn't a broken guarantee: the contract says what is
+  checked, and the rest is theirs.
+- **When rules pull apart,** the first that applies decides: a guarantee against untrusted input,
+  then a recorded decision, then strict support, then proportional handling.
 - **Don't check again what the platform checks.** Web Crypto validates keys and signatures, Effect
   validates its arguments, the database its constraints: rely on them, and say so, rather than
   adding a second, weaker copy that must be kept in step.
