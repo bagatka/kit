@@ -658,11 +658,6 @@ conflict.
   shown to the founder: the failure reproduced before the change, the same scenario passing after
   it on the real stack (commands with their decisive output, numbers, screenshots), and what wasn't
   tested. Answers to questions about the repository need none.
-- **An independent audit after big changes:** a new package, a changed contract, or anything that
-  touches credentials, input from others, or publishing. Start a separate Amp thread in a new orb in
-  the mode `gpt61s` (GPT-6.1 Sol at high effort) to find bugs and vulnerabilities in the change.
-  Its findings are evidence, not decisions: each is confirmed with a probe and checked against this
-  file before anything changes.
 - **Mutation testing** (section 10) runs by hand, from time to time, on the founder's own machine:
   it takes hours, so it isn't part of CI, orbs, or the Nix shell.
 - **Commands:**
