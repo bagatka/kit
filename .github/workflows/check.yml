@@ -1,0 +1,74 @@
+# Everything `bun run check`, `bun run check:swift` and `bun run test` check, on every push and pull
+# request: the same commands people and agents run (AGENTS.md, "Let the compiler review first").
+name: Check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # flake.nix's Node.
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.0
+
+      - name: Install
+        run: |
+          set -euo pipefail
+          git init --quiet source
+          cd source
+          git fetch --quiet --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" "$GITHUB_SHA"
+          git checkout --quiet --detach FETCH_HEAD
+          # The Bun in package.json's packageManager, the one flake.nix pins.
+          npm install --global --silent "$(node -p 'require("./package.json").packageManager')"
+          bun install --frozen-lockfile
+          # A frozen install doesn't notice a dependency removed from a package.json; a lock that
+          # an install would change is out of date.
+          bun install --silent
+          git diff --exit-code bun.lock
+
+      - name: Check
+        working-directory: source
+        run: bun run check
+
+      - name: Test
+        working-directory: source
+        run: bun run test
+
+  # The Swift @bagatka/openapi-swift writes, compiled and run: `bun run check:swift`, in Swift 6.4 on
+  # Ubuntu 24.04 as swift.org builds it, pinned by digest. The clients need Swift 6.2 or later.
+  swift:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container: swift:6.4-noble@sha256:19cbe56bdaec1918f7cf5fdeba42b9bd55bdd8a6149c9990d0e0e3a89a127d63
+    steps:
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.0
+
+      - name: Install
+        run: |
+          set -euo pipefail
+          git init --quiet source
+          cd source
+          git fetch --quiet --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" "$GITHUB_SHA"
+          git checkout --quiet --detach FETCH_HEAD
+          npm install --global --silent "$(node -p 'require("./package.json").packageManager')"
+          bun install --frozen-lockfile
+
+      - name: Check Swift
+        working-directory: source
+        run: bun run check:swift

@@ -1,0 +1,31 @@
+{
+  "name": "@bagatka/app-store-connect",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Follows and publishes an app's releases through the App Store Connect API, on any Apple platform, with Effect.",
+  "keywords": [
+    "app-store",
+    "app-store-connect",
+    "apple",
+    "effect",
+    "ios",
+    "release",
+    "testflight"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@bagatka/jwt": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "vitest": "catalog:"
+  }
+}

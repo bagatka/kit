@@ -1,0 +1,31 @@
+{
+  "name": "@bagatka/workspace-rules",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Checks that a JavaScript workspace's packages follow your rules: what each is named, whether others may import it, and which packages it may depend on, at which versions.",
+  "keywords": [
+    "architecture",
+    "bun",
+    "catalog",
+    "dependency-rules",
+    "effect",
+    "lint",
+    "monorepo",
+    "workspace"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "vitest": "catalog:"
+  }
+}

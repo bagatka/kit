@@ -1,0 +1,6 @@
+[install]
+# Each package sees only the dependencies it declares, so an undeclared import doesn't resolve.
+# This is Bun's default for new workspaces; it is stated because the architecture relies on it.
+linker = "isolated"
+# `bun add` writes exact versions; the catalog in package.json holds the one version of each.
+exact = true

@@ -1,0 +1,24 @@
+node_modules/
+
+# What `bun run build` writes: each package as npm gets it
+/build/
+
+# Screenshots Vitest takes of a browser test that failed
+.vitest/
+
+# Nix build links
+/result
+/result-*
+
+# Copies of the repository that agents work in
+.claude/worktrees/
+
+.DS_Store
+
+# Keys and settings with secrets never belong here (AGENTS.md, "Security and privacy")
+*.p8
+*.pem
+*.key
+.env
+.env.*
+.dev.vars*

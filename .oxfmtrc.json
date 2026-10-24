@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 120,
+  "semi": false,
+  "singleQuote": false,
+  "trailingComma": "all",
+  "arrowParens": "always",
+  "sortImports": true,
+  // Markdown is wrapped by hand at 100 columns; lock files are written by their tools.
+  "ignorePatterns": ["**/*.md", "bun.lock", "flake.lock"]
+}

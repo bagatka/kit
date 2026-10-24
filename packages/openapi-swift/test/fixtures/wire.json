@@ -1,0 +1,71 @@
+{
+  "notes": [
+    {
+      "id": "n/1",
+      "title": "Groceries",
+      "body": null,
+      "pinned": true,
+      "color": "green",
+      "tags": ["home", "to do"],
+      "createdAt": "2026-10-24T09:30:00.000Z",
+      "views": 3,
+      "score": "-Infinity",
+      "extra": {
+        "weight": 2.5,
+        "peak": "Infinity"
+      },
+      "meta": {
+        "nested": [1, "two", null, true]
+      },
+      "archivedAt": "2026-10-25T00:00:00.000Z",
+      "rank": 7
+    },
+    {
+      "id": "n2",
+      "title": "Ideas",
+      "body": "Write the kit",
+      "pinned": false,
+      "color": "1m",
+      "tags": [],
+      "createdAt": "2026-10-23T12:00:00.000Z",
+      "views": 0,
+      "score": 0.5,
+      "extra": {}
+    }
+  ],
+  "note": {
+    "id": "n2",
+    "title": "Ideas",
+    "body": "Write the kit",
+    "pinned": false,
+    "color": "1m",
+    "tags": [],
+    "createdAt": "2026-10-23T12:00:00.000Z",
+    "views": 0,
+    "score": 0.5,
+    "extra": {}
+  },
+  "newNote": {
+    "title": "Draft",
+    "color": "red",
+    "shape": {
+      "_tag": "Square",
+      "side": 2
+    },
+    "stamp": {
+      "_tag": "Circle",
+      "radius": "NaN"
+    }
+  },
+  "noteNotFound": {
+    "_tag": "NoteNotFound",
+    "id": "missing"
+  },
+  "notAllowed": {
+    "_tag": "NotAllowed",
+    "reason": "Read only"
+  },
+  "badRequest": {
+    "_tag": "BadRequest"
+  }
+}

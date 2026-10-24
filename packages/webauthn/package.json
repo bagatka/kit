@@ -1,0 +1,32 @@
+{
+  "name": "@bagatka/webauthn",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Passkeys for a site, with Effect: registration and authentication options, and checks of what a browser or an app answers, on Web Crypto. Stateless.",
+  "keywords": [
+    "authentication",
+    "cloudflare-workers",
+    "effect",
+    "fido2",
+    "passkey",
+    "passkeys",
+    "web-crypto",
+    "webauthn"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/platform-browser": "catalog:",
+    "@effect/vitest": "catalog:",
+    "vitest": "catalog:"
+  }
+}

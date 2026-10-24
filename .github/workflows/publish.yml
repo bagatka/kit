@@ -1,0 +1,137 @@
+# Publishes the packages, packages/*, to npm as @bagatka/<name>: on every push to main that changes
+# packages/**, each one whose name@version npm doesn't have yet, dependencies first, with
+# provenance (PATTERNS.md, "Publishing"). npm never takes a version twice, so a change reaches npm
+# only with a new version.
+#
+# Two jobs, so nothing that installs or runs dependencies can publish:
+# - `build` installs, checks, tests, and packs each package into the tarball the check installed and
+#   type-checked. It can read the repository and nothing else.
+# - `publish` installs nothing and runs no code of the repository's: it takes those tarballs and
+#   publishes them. Only it may ask GitHub for the OIDC token npm accepts, and only in the `npm`
+#   environment, which allows deployments from `main` alone.
+#
+# Setting up, once, by the founder (AGENTS.md, "Publishing"):
+# - The repository's `npm` environment, with "Deployment branches" limited to `main`.
+# - A package's first version goes with the NPM_TOKEN secret of that environment: a granular access
+#   token for that publish (read and write for @bagatka, expiring in a day), set with
+#   `gh secret set NPM_TOKEN --repo bagatka/kit --env npm` and deleted afterwards.
+# - Then, once per package, this workflow as its trusted publisher, bound to the environment, signed
+#   in to npm with two-factor authentication:
+#     npm trust github @bagatka/<name> --repo bagatka/kit --file publish.yml --env npm --allow-publish --yes
+#   and tokens refused for it from then on:
+#     npm access set mfa=publish @bagatka/<name>
+name: Publish
+
+on:
+  push:
+    branches: [main]
+    paths: ["packages/**"]
+
+permissions: {}
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # A fork's pushes publish nothing: only this repository may publish @bagatka.
+    if: github.repository == 'bagatka/kit'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      # flake.nix's Node.
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.0
+
+      - name: Check, test, and pack the packages
+        run: |
+          set -euo pipefail
+          git init --quiet source
+          cd source
+          git fetch --quiet --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" "$GITHUB_SHA"
+          git checkout --quiet --detach FETCH_HEAD
+          # The Bun in package.json's packageManager, the one flake.nix pins.
+          npm install --global --silent "$(node -p 'require("./package.json").packageManager')"
+          bun install --frozen-lockfile
+          bun run check
+          bun run test
+          bun tools/src/main.ts build "$RUNNER_TEMP/npm" > "$RUNNER_TEMP/packages.txt"
+          # The tarballs, and the order to publish them in, one `<name>@<version> <file>` a line.
+          mkdir "$RUNNER_TEMP/release"
+          while read -r package tarball; do
+            cp "$tarball" "$RUNNER_TEMP/release/"
+            echo "$package $(basename "$tarball")" >> "$RUNNER_TEMP/release/order.txt"
+          done < "$RUNNER_TEMP/packages.txt"
+          cat "$RUNNER_TEMP/release/order.txt"
+
+      - name: Keep the tarballs for publishing
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: npm
+    permissions:
+      contents: read
+      # The OIDC token npm's trusted publishing and provenance read.
+      id-token: write
+    steps:
+      # flake.nix's Node, with npm 11: trusted publishing needs npm 11.5.1 and Node 22.14 or later.
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.0
+
+      - name: Take the tarballs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+
+      - name: Publish what npm doesn't have
+        working-directory: ${{ runner.temp }}/release
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          # A re-run of an older push would publish older code under a version npm doesn't have yet:
+          # only the newest commit on main publishes.
+          tip="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | cut -f1)"
+          if [ "$tip" != "$GITHUB_SHA" ]; then
+            echo "::error::main is at $tip now, not at $GITHUB_SHA: push again, or re-run the newest run."
+            exit 1
+          fi
+          if [ -n "$NPM_TOKEN" ]; then
+            # For first versions. npm reads the variable when it runs, so the token isn't written down.
+            echo "//registry.npmjs.org/:_authToken=\${NPM_TOKEN}" > "$HOME/.npmrc"
+          fi
+          while read -r package tarball; do
+            # npm answers E404 for a name or version it doesn't have; anything else stops here.
+            set +e
+            found="$(npm view "$package" version --json 2>&1)"
+            code=$?
+            set -e
+            if [ "$code" -eq 0 ] && [ -n "$found" ]; then
+              echo "$package is on npm already."
+              continue
+            fi
+            if [ "$code" -ne 0 ] && ! printf '%s' "$found" | grep -q '"E404"'; then
+              echo "::error::npm couldn't say whether it has $package: $found"
+              exit 1
+            fi
+            if ! npm publish "./$tarball" --provenance --access public; then
+              echo "::error::npm didn't publish $package; its output above says why. A package without a trusted publisher yet needs one (see the top of this workflow), then a new push."
+              exit 1
+            fi
+          done < order.txt

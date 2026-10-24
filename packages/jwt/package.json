@@ -1,0 +1,32 @@
+{
+  "name": "@bagatka/jwt",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Signs JSON Web Tokens with ES256 and RS256 keys, such as Apple's .p8 keys and a GitHub App's, through Web Crypto, with Effect.",
+  "keywords": [
+    "apple",
+    "cloudflare-workers",
+    "effect",
+    "es256",
+    "github-app",
+    "jws",
+    "jwt",
+    "rs256",
+    "web-crypto"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "vitest": "catalog:"
+  }
+}

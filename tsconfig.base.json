@@ -1,0 +1,145 @@
+{
+  // Every package extends this file and sets only `include` (and `types`, for a host that runs on a
+  // platform). Effect's diagnostics come from @effect/tsgo, patched into `tsc` by `bun install`.
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+
+    // No ambient types unless a package names them: packages name none, so Node, Bun, DOM, and
+    // Workers APIs don't exist for them, and each works on every runtime. The repository's program
+    // names Bun's.
+    "types": [],
+
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "useUnknownInCatchVariables": true,
+
+    // Erasable syntax only, so every file runs under type stripping and reads the same everywhere.
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "erasableSyntaxOnly": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        // Every Effect diagnostic that is on fails the build, suggestions included. A rule we don't
+        // follow is turned off below, with its reason.
+        "ignoreEffectSuggestionsInTscExitCode": false,
+        "ignoreEffectWarningsInTscExitCode": false,
+        "ignoreEffectErrorsInTscExitCode": false,
+        // Several Effect modules we rely on are marked unstable. Each one is allowed here by name
+        // and pinned to one exact version in the catalog, so using a new one is a visible decision.
+        "allowedUnstableApis": [
+          // The repository's own program: its commands and the programs it runs.
+          "effect/cli",
+          "effect/process",
+          "@effect/platform-bun",
+          // Effect's Crypto service, which passkeys' challenges are drawn from, and its layer on Web
+          // Crypto that Workers and browsers provide.
+          "effect/Crypto",
+          "@effect/platform-browser",
+          "effect/PlatformError",
+          // The HTTP client that pushes reach APNs through, in @bagatka/apns.
+          "effect/http",
+          // HTTP's `Retry-After`, either form, as @bagatka/github-app reads GitHub's rate limits.
+          "effect/Schema#RetryAfterFromString",
+          // Effect's provider-neutral language and decision models, which
+          // @bagatka/ai-cloudflare-binding provides through a Worker's AI binding, and the Cloudflare
+          // client of Effect's whose decisions it runs there.
+          "effect/ai",
+          "@effect/ai-cloudflare",
+          // Effect's API definitions, whose OpenAPI documents @bagatka/openapi-swift's tests read.
+          "effect/http-api",
+          // Reading a workspace, in @bagatka/workspace-rules.
+          "effect/FileSystem",
+          "effect/Path",
+          "@effect/vitest"
+        ],
+        // `import { Effect, Schema } from "effect"`, never "effect/Effect".
+        "barrelImportPackages": ["effect"],
+        "diagnosticSeverity": {
+          // Platform globals: each has an Effect service, so code stays testable and portable.
+          "globalDate": "error",
+          "globalDateInEffect": "error",
+          "globalRandom": "error",
+          "globalRandomInEffect": "error",
+          "cryptoRandomUUID": "error",
+          "cryptoRandomUUIDInEffect": "error",
+          "globalFetch": "error",
+          "globalFetchInEffect": "error",
+          "globalConsole": "error",
+          "globalConsoleInEffect": "error",
+          "globalTimers": "error",
+          "globalTimersInEffect": "error",
+          "processEnv": "error",
+          "processEnvInEffect": "error",
+          "nodeBuiltinImport": "error",
+          "abortControllerInEffect": "error",
+
+          // One async model and one error model.
+          "asyncFunction": "error",
+          "newPromise": "error",
+          "tryCatchInEffectGen": "error",
+          "extendsNativeError": "error",
+          "preferSchemaTaggedError": "error",
+          "anyUnknownInErrorContext": "error",
+          "unsafeEffectTypeAssertion": "error",
+
+          // Schema decodes untrusted data, inside effects.
+          "preferSchemaOverJson": "error",
+          "schemaSync": "error",
+          "schemaSyncInEffect": "error",
+          "instanceOfSchema": "error",
+          "preferSchemaTypeProperty": "error",
+          "schemaUnionOfLiterals": "error",
+
+          // Services: requirements never leak, layers are provided by hosts, and keys are
+          // "<package name>/<file>/<Class>", without "/<Class>" when the class's name in lowercase
+          // is the file's name: `@bagatka/apns/apns`.
+          "leakingRequirements": "error",
+          "deterministicKeys": "error",
+          "serviceNotAsClass": "error",
+          "strictEffectProvide": "error",
+
+          // One way to write a workflow: generators, no Do notation, no nested generators.
+          "effectDoNotation": "error",
+          "nestedEffectGenYield": "error",
+          "strictBooleanExpressions": "error",
+          "preferBarrelImport": "error",
+
+          // Records compare by shape on purpose; IDs and value types carry brands.
+          "schemaClassMissingBrand": "off",
+          // Records and errors are constructed with `new`, the one way PATTERNS.md shows.
+          "newSchemaClass": "off"
+        },
+        "overrides": [
+          {
+            // The fixture of an API whose numbers may not be finite, which the Swift client must
+            // read and write as Effect does.
+            "include": ["**/openapi-swift/test/fixtures/**/*.ts"],
+            "options": { "diagnosticSeverity": { "schemaNumber": "off" } }
+          },
+          {
+            // Tests and the repository's program are where layers are provided (PATTERNS.md,
+            // "Services and layers").
+            "include": ["**/test/**/*.ts", "**/tools/src/**/*.ts"],
+            "options": { "diagnosticSeverity": { "strictEffectProvide": "off" } }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "@bagatka/qr-code",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Encodes text as a QR code, such as a link a phone's camera opens, and draws it as SVG path data, with Effect.",
+  "keywords": [
+    "barcode",
+    "effect",
+    "iso-18004",
+    "qr",
+    "qr-code",
+    "qrcode",
+    "svg"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/platform-browser": "catalog:",
+    "@effect/vitest": "catalog:",
+    "vitest": "catalog:"
+  }
+}

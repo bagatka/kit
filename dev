@@ -1,0 +1,16 @@
+#!/bin/sh
+# Opens a shell with the pinned toolchain from flake.nix (Bun, Node, Git). With arguments, runs
+# them in that toolchain instead: `./dev bun run check`.
+set -eu
+
+if ! command -v nix >/dev/null 2>&1; then
+  printf '%s\n' 'error: Nix is required: https://nixos.org/download/' >&2
+  exit 127
+fi
+
+root="$(cd "$(dirname "$0")" && pwd)"
+
+if [ "$#" -eq 0 ]; then
+  exec nix --extra-experimental-features 'nix-command flakes' develop "$root"
+fi
+exec nix --extra-experimental-features 'nix-command flakes' develop "$root" --command "$@"

@@ -1,0 +1,31 @@
+{
+  "name": "@bagatka/openapi-swift",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Writes a typed Swift 6 client of an HTTP API from its OpenAPI 3.1 document, such as Effect's HttpApi writes, on Foundation alone.",
+  "keywords": [
+    "codegen",
+    "effect",
+    "http-api",
+    "ios",
+    "openapi",
+    "openapi-3.1",
+    "swift",
+    "swift-client"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "vitest": "catalog:"
+  }
+}

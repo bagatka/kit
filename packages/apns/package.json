@@ -1,0 +1,33 @@
+{
+  "name": "@bagatka/apns",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sends push notifications to Apple devices through APNs with a token-signing key, every push type, with Effect.",
+  "keywords": [
+    "apns",
+    "apple",
+    "effect",
+    "ios",
+    "live-activity",
+    "notifications",
+    "push",
+    "push-notifications",
+    "voip"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@bagatka/jwt": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "vitest": "catalog:"
+  }
+}

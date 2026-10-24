@@ -1,0 +1,77 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // Lints what the compiler and @effect/tsgo don't check. A rule turned off for some files says why
+  // next to it; disable comments in code are refused by `bun run check`.
+  "options": {
+    "typeAware": true,
+    "denyWarnings": true,
+    "reportUnusedDisableDirectives": "error"
+  },
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "import"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
+  },
+  "rules": {
+    // Explicit over implicit (PATTERNS.md, entry 1).
+    "import/no-default-export": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-non-null-assertion": "error",
+    "typescript/consistent-type-assertions": ["error", { "assertionStyle": "never" }],
+    "typescript/ban-ts-comment": "error",
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-namespace": "error",
+    "eslint/prefer-const": "error",
+    "eslint/no-var": "error",
+    "eslint/no-param-reassign": "error",
+    "eslint/no-nested-ternary": "error",
+    "eslint/eqeqeq": "error",
+    // `_tag` is how Effect discriminates Option, Result, Exit, and tagged errors.
+    "eslint/no-underscore-dangle": ["error", { "allow": ["_tag"] }],
+
+    // Closed sets are switched over exhaustively, without a default (PATTERNS.md, entry 6).
+    "typescript/switch-exhaustiveness-check": "error",
+    "typescript/no-misused-promises": "error",
+
+    // Files are lowercase kebab-case, so casing never differs between macOS and Linux.
+    "unicorn/filename-case": ["error", { "case": "kebabCase" }],
+
+    // `return yield* new SomeError()` ends a generator that otherwise returns nothing: it is how
+    // Effect code fails (PATTERNS.md, "Errors").
+    "typescript/consistent-return": "off",
+
+    "import/no-cycle": "error",
+    "import/no-self-import": "error",
+
+    // Effect 3's packages moved into `effect` in Effect 4 (AGENTS.md, "Effect 4, not Effect 3").
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": [
+              "@effect/schema",
+              "@effect/platform",
+              "@effect/sql",
+              "@effect/cli",
+              "@effect/ai",
+              "@effect/rpc",
+              "@effect/cluster",
+              "@effect/workflow",
+              "@effect/experimental"
+            ],
+            "message": "Effect 4 has these in `effect`: effect/http, effect/sql, effect/cli, effect/ai, effect/rpc."
+          }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      // Vitest reads its configuration by its default export.
+      "files": ["**/vitest.config.ts"],
+      "rules": { "import/no-default-export": "off" }
+    }
+  ]
+}

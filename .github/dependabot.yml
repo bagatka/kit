@@ -1,0 +1,8 @@
+# Proposes new versions of the actions the workflows pin by commit, once a week. Dependencies in
+# package.json move by hand, in a change of their own (PATTERNS.md, "Build and checks").
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

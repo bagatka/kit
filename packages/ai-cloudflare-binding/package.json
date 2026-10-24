@@ -1,0 +1,35 @@
+{
+  "name": "@bagatka/ai-cloudflare-binding",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Effect AI from a Cloudflare Worker through its AI binding, with no API token: LanguageModel on Workers AI's text models, and Clef decisions for @effect/ai-cloudflare.",
+  "keywords": [
+    "ai",
+    "binding",
+    "clef",
+    "cloudflare",
+    "cloudflare-workers",
+    "decision-model",
+    "effect",
+    "effect-ai",
+    "language-model",
+    "llm",
+    "workers-ai"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@effect/ai-cloudflare": "catalog:",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "vitest": "catalog:"
+  }
+}

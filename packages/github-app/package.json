@@ -1,0 +1,31 @@
+{
+  "name": "@bagatka/github-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A GitHub App with Effect: its installations and their tokens, its creation from a manifest, and its webhooks' signatures.",
+  "keywords": [
+    "effect",
+    "github",
+    "github-app",
+    "installation-token",
+    "jwt",
+    "manifest",
+    "webhook"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@bagatka/jwt": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "vitest": "catalog:"
+  }
+}

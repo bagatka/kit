@@ -1,0 +1,32 @@
+{
+  "name": "@bagatka/quantile-sketch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Quantiles such as p50 and p99 of any number of values, such as request durations, from small sketches that merge, with Effect.",
+  "keywords": [
+    "ddsketch",
+    "effect",
+    "histogram",
+    "latency",
+    "metrics",
+    "p99",
+    "percentile",
+    "quantile",
+    "sketch"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "vitest": "catalog:"
+  }
+}
