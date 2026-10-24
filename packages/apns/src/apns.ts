@@ -117,7 +117,8 @@ export class Apns extends Context.Service<
 >()("@bagatka/apns/apns") {
   /**
    * APNs with `credentials`, signing with `crypto` (`crypto.subtle`), on the `HttpClient` the host
-   * provides, which must speak HTTP/2, as `fetch` does in a deployed Worker. Fails with
+   * provides, which must speak HTTP/2, as `fetch` does on deployed Workers, Node 26 and Deno 2, and
+   * not on Bun 1.4, where every push is `ApnsUnavailable`. Fails with
    * `ApnsCredentialsInvalid` when the credentials can't sign tokens APNs takes.
    */
   static readonly layer = (

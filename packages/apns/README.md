@@ -11,8 +11,9 @@ npm install @bagatka/apns effect
 
 Its peer dependency is `effect`, at the minor version it is built with: your program uses that one
 too. It signs with the platform's Web Crypto, which the host passes, and sends through the Effect
-`HttpClient` the host provides, which must speak HTTP/2, as `fetch` does in a deployed Cloudflare
-Worker.
+`HttpClient` the host provides, which must speak HTTP/2, the only protocol APNs speaks. Effect's
+`FetchHttpClient` does on Cloudflare Workers once deployed, Node 26, and Deno 2. Bun 1.4's `fetch`
+doesn't, so there every push fails with `ApnsUnavailable`.
 
 ## Use it
 
@@ -94,5 +95,7 @@ development for builds Xcode installs, production for TestFlight and the App Sto
   once and never keep it; or absent, for Apple's policy of up to 30 days.
 - **An answer that isn't APNs's** (no JSON body, or a reason that isn't one of Apple's camel-case
   words) is `ApnsUnavailable`, never a reason made up or passed into logs.
-- **HTTP/2 is the host's.** APNs speaks only HTTP/2, and answers nothing over HTTP/1.1. `fetch` in a
-  deployed Worker speaks it; Node's, and workerd's under `wrangler dev`, don't.
+- **HTTP/2 is the host's.** APNs speaks only HTTP/2; a client of HTTP/1.1 can't read its answer.
+  `fetch` speaks it on deployed Workers, Node 26 and Deno 2, as pushes to APNs's sandbox show; Bun
+  1.4's doesn't, and neither does workerd's under `wrangler dev`. Not reaching APNs is
+  `ApnsUnavailable`, which reads as an outage: on Bun, every push is.

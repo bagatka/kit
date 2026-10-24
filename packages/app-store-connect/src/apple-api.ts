@@ -169,7 +169,7 @@ export const appleApi = Effect.fn("AppStoreConnect.api")(function* (
     "AppStoreConnect.pagesFrom",
   )(function* (request: HttpClientRequest.HttpClientRequest, what: string, pagesBefore: number) {
     // Not handled: a listing of more than 2,000 resources, such as an app with that many App Store
-    // versions; it dies here. Reading it would take more pages, each a subrequest of the Worker's.
+    // versions; it dies here. Reading it would take more pages, each one more request.
     if (pagesBefore === mostPages) {
       return yield* Effect.die(`App Store Connect has more than ${mostPages * pageSize} ${what}`)
     }

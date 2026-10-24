@@ -159,4 +159,4 @@ A product that reads often and writes rarely can hold two clients, one per key, 
 - **Apple limits each key's requests per rolling hour** (3,500 in its documentation's example; its
   `X-Rate-Limit` header says how many remain), and answers 429 past it. `prepareVersion` takes two
   requests, and one more per change and per locale written: about 45 for an app in 40 locales, each
-  a subrequest of the Worker's.
+  a subrequest on Cloudflare Workers.
