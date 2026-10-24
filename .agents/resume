@@ -7,7 +7,8 @@
 #                               make Amp load it: ~/.config/amp/AGENTS.md and a plugin
 #   .agents/resume sync <name>  commit what changed as "Memory from <name>", pull, and push; the
 #                               plugin runs it at the end of each turn, and does nothing when
-#                               nothing changed
+#                               nothing changed. Exits 3, printing the files, when what this orb
+#                               wrote conflicts with what others pushed; its commits are kept.
 #
 # Without access to kit-memory (someone else's orb, or Amp's GitHub app can't see it), it says so
 # in one line and exits 0, so the orb still starts.
@@ -20,21 +21,54 @@ self="$(cd "$(dirname "$0")" && pwd)/resume"
 export GIT_TERMINAL_PROMPT=0
 net() { timeout 8 git -C "$memory" "$@"; }
 
+# Orbs that each add a memory all append a line to the index, which git reports as a conflict;
+# union keeps every line. Only the index: two versions of one memory must never be joined.
+# .git/info/attributes belongs to this clone, so kit-memory itself is unchanged.
+prepare() {
+  gitdir="$(git -C "$memory" rev-parse --absolute-git-dir)"
+  mkdir -p "$gitdir/info"
+  grep -qsFx 'memory/MEMORY.md merge=union' "$gitdir/info/attributes" ||
+    echo 'memory/MEMORY.md merge=union' >>"$gitdir/info/attributes"
+}
+
+# Rebases this orb's commits onto what others pushed. On a conflict, prints the conflicted files,
+# goes back to this orb's commits, and returns 3; a clone is never left in the middle of a rebase.
+pull() {
+  net pull --quiet --rebase >&2 && return 0
+  if [[ -d "$gitdir/rebase-merge" || -d "$gitdir/rebase-apply" ]]; then
+    git -C "$memory" diff --name-only --diff-filter=U
+    git -C "$memory" rebase --abort
+    return 3
+  fi
+  return 1
+}
+
 # Commits local changes, rebases them onto what others pushed, and pushes: what kit-memory's
-# AGENTS.md asks of an agent after writing. Exits non-zero, with git's message, when it can't.
+# AGENTS.md asks of an agent after writing.
 sync() {
-  local name="$1"
+  local name="$1" attempt
+  prepare
+  # A rebase a turn left unfinished goes back to the commits it started from.
+  if [[ -d "$gitdir/rebase-merge" || -d "$gitdir/rebase-apply" ]]; then
+    git -C "$memory" rebase --abort
+  fi
   if [[ -n "$(git -C "$memory" status --porcelain)" ]]; then
     git -C "$memory" add --all
     git -C "$memory" commit --quiet --message "Memory from $name"
   fi
   # Nothing of ours to push: no network call, so a turn that wrote no memory costs nothing.
   if [[ -z "$(git -C "$memory" rev-list '@{upstream}..HEAD' 2>/dev/null)" ]]; then
-    return
+    return 0
   fi
-  # A push refused because someone pushed first is answered by pulling with rebase, once.
-  net pull --quiet --rebase && net push --quiet ||
-    { net pull --quiet --rebase && net push --quiet; }
+  # A push refused because another orb pushed first: wait 1-3s, so the orbs spread out, and
+  # rebase again. What still isn't pushed after five tries stays committed for the next sync.
+  for attempt in 1 2 3 4 5; do
+    pull || return
+    net push --quiet 2>/dev/null && return 0
+    sleep "$((RANDOM % 3 + 1))"
+  done
+  echo "pushed by others five times in a row" >&2
+  return 1
 }
 
 if [[ "${1:-}" == sync ]]; then
@@ -49,12 +83,18 @@ if [[ ! -d "$memory/.git" ]]; then
     echo "kit-memory: can't clone bagatka/kit-memory with this orb's GitHub connection; Amp runs without memory"
     exit 0
   fi
+  prepare
 else
   # What a turn left unpushed (the orb paused, or the network failed) goes first; then others'.
-  sync "orb ${AMP_THREAD_ID:-unknown}" ||
+  status=0
+  sync "orb ${AMP_THREAD_ID:-unknown}" >/dev/null 2>&1 || status=$?
+  if ((status == 3)); then
+    echo "kit-memory: this orb's memory conflicts with what others pushed; the next turn resolves it"
+  elif ((status != 0)); then
     echo "kit-memory: couldn't push this orb's memory; the next turn tries again"
-  net pull --quiet --rebase --autostash ||
+  elif ! pull >/dev/null; then
     echo "kit-memory: couldn't pull bagatka/kit-memory; using the copy from the last wake"
+  fi
 fi
 
 # Replaces the block between the markers, so a change to it reaches orbs set up before it.
@@ -74,30 +114,45 @@ says. Its index: @~/Developer/bagatka/kit-memory/memory/MEMORY.md
 
 - Memories go in ~/Developer/bagatka/kit-memory/memory/, never in the repository you work in.
 - At the end of each turn, a plugin commits and pushes what changed there as "Memory from orb
-  <thread ID>"; you only write the files.
+  <thread ID>"; you only write the files. If another machine changed the same memory, it starts
+  one more turn for you to resolve the conflict.
 $end
 EOF
 
 # A system plugin: Amp has no Claude Code hooks, but a plugin's agent.end runs after every turn.
 plugin="$HOME/.config/amp/plugins/kit-memory.ts"
 mkdir -p "$(dirname "$plugin")"
-plugin_source="$(cat <<EOF
-// Written by $self; changes belong there.
+plugin_source="$(cat <<'EOF'
+// Written by __RESUME__; changes belong there.
 import type { PluginAPI } from '@ampcode/plugin'
 
 export const description = 'Commits and pushes bagatka/kit-memory at the end of each turn'
 
+const resume = '__RESUME__'
+const conflict = 'kit-memory conflict:'
+
 export default function (amp: PluginAPI) {
 	amp.on('agent.end', async (event, ctx) => {
-		const result = await ctx.\$\`$self sync \${'orb ' + event.thread.id}\`
-		if (result.exitCode !== 0) {
-			ctx.logger.log(result.stderr)
-			await ctx.ui.notify('kit-memory: the memory from this turn is not pushed yet: ' + result.stderr.trim())
+		const result = await ctx.$`${resume} sync ${'orb ' + event.thread.id}`
+		if (result.exitCode === 0) return
+		const files = result.stdout.trim().split('\n').join(', ')
+		// The agent that wrote the memory knows why, so it resolves the conflict, once a turn
+		// that wasn't itself a resolution; after that the user decides.
+		if (result.exitCode === 3 && !event.message.startsWith(conflict)) {
+			return {
+				action: 'continue',
+				maxContinuations: 1,
+				userMessage: `${conflict} what this thread wrote to memory conflicts with what another machine pushed, in ${files}. In ~/Developer/bagatka/kit-memory, run \`git pull --rebase\`. For each conflicted file, decide what is true now: keep the newer fact, combine two that agree, or split them into separate memories. Never leave two opposite statements in one file, and keep memory/MEMORY.md one line a memory. Then \`git add\` the files and run \`GIT_EDITOR=true git rebase --continue\`. Don't push: the plugin pushes when this turn ends. If you can't tell which fact is true, ask the user.`,
+			}
 		}
+		ctx.logger.log(result.stderr)
+		const reason = result.exitCode === 3 ? `it conflicts with another machine's, in ${files}` : result.stderr.trim()
+		await ctx.ui.notify(`kit-memory: the memory from this turn is not pushed yet: ${reason}`)
 	})
 }
 EOF
 )"
+plugin_source="${plugin_source//__RESUME__/$self}"
 # Rewritten only when it changed, so a wake doesn't make Amp reload the plugin.
 if [[ "$(cat "$plugin" 2>/dev/null)" != "$plugin_source" ]]; then
   printf '%s\n' "$plugin_source" >"$plugin"
