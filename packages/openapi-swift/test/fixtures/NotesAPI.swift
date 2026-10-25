@@ -145,13 +145,31 @@ public nonisolated struct NewNote: Codable, Hashable, Sendable {
     public let color: Color
     public let shape: Shape
     public let stamp: Circle
+    public let label: String
+    public let day: String
+    public let agreed: Bool
+    public let size: Double
 
-    public init(title: String, body: String? = nil, color: Color, shape: Shape, stamp: Circle) {
+    public init(
+        title: String,
+        body: String? = nil,
+        color: Color,
+        shape: Shape,
+        stamp: Circle,
+        label: String,
+        day: String,
+        agreed: Bool,
+        size: Double,
+    ) {
         self.title = title
         self.body = body
         self.color = color
         self.shape = shape
         self.stamp = stamp
+        self.label = label
+        self.day = day
+        self.agreed = agreed
+        self.size = size
     }
 
     private enum `JSON keys`: String, CodingKey {
@@ -160,6 +178,10 @@ public nonisolated struct NewNote: Codable, Hashable, Sendable {
         case color = "color"
         case shape = "shape"
         case stamp = "stamp"
+        case label = "label"
+        case day = "day"
+        case agreed = "agreed"
+        case size = "size"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -169,6 +191,10 @@ public nonisolated struct NewNote: Codable, Hashable, Sendable {
         self.color = try container.`value at`(.color)
         self.shape = try container.`value at`(.shape)
         self.stamp = try container.`value at`(.stamp)
+        self.label = try container.`value at`(.label)
+        self.day = try container.`value at`(.day)
+        self.agreed = try container.`value at`(.agreed)
+        self.size = try container.`value at`(.size)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -178,6 +204,10 @@ public nonisolated struct NewNote: Codable, Hashable, Sendable {
         try container.encode(self.color, forKey: .color)
         try container.encode(self.shape, forKey: .shape)
         try container.encode(self.stamp, forKey: .stamp)
+        try container.encode(self.label, forKey: .label)
+        try container.encode(self.day, forKey: .day)
+        try container.encode(self.agreed, forKey: .agreed)
+        try container.encode(self.size, forKey: .size)
     }
 }
 

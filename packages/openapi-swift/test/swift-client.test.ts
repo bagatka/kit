@@ -277,6 +277,13 @@ describe("swiftClient", () => {
         record: ref("Empty"),
         text: { ...described, type: "string" },
         level: { ...ref("Level"), description: "How much." },
+        // Effect's second check of a Schema, in an allOf of checks alone.
+        name: { type: "string", pattern: "^\\S.*$", allOf: [{ pattern: "^\\P{Cc}*$" }, { maxLength: 256 }] },
+        day: ref("Day"),
+        // Effect's Schema.Literal(true) and Schema.Literals([1, 2]): the scalar, whose values the server checks.
+        yes: { type: "boolean", enum: [true] },
+        rank: { type: "integer", enum: [1, 2] },
+        step: { type: "number", enum: [0.5, 2] },
       }
       const swift = yield* swiftClient(
         documentOf({
@@ -284,6 +291,7 @@ describe("swiftClient", () => {
           MaybeText: { anyOf: [string, { type: "null" }] },
           Empty: { type: "object", properties: {} },
           Level: { ...described, type: "string", enum: ["low", "high"] },
+          Day: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$", allOf: [{ format: "date" }] },
         }),
       )
       assert.include(
@@ -299,6 +307,11 @@ describe("swiftClient", () => {
           "    public let record: [String: JSONValue]",
           "    public let text: String",
           "    public let level: Level",
+          "    public let name: String",
+          "    public let day: String",
+          "    public let yes: Bool",
+          "    public let rank: Int",
+          "    public let step: Double",
         ].join("\n"),
       )
       // An API that names no errors reads any failing answer as unreadable.
@@ -599,7 +612,12 @@ describe("swiftClient", () => {
           [`${x}: the keywords prefixItems, contains, which no Swift type here holds`],
         ],
         [holding({ type: "string", enum: [1, 2] }), [`${x}: an enum of other values than strings`]],
-        [holding({ type: "integer", enum: [1, 2] }), [`${x}: an enum of other values than strings`]],
+        // An enum of a scalar's values is that scalar; of any other values, it isn't.
+        [holding({ type: "integer", enum: [1, "a"] }), [`${x}: an enum of other values than integers`]],
+        [holding({ type: "integer", enum: [1.5] }), [`${x}: an enum of other values than integers`]],
+        [holding({ type: "number", enum: ["Infinity"] }), [`${x}: an enum of other values than numbers`]],
+        [holding({ type: "boolean", enum: [true, null] }), [`${x}: an enum of other values than booleans`]],
+        [holding({ type: "boolean", enum: [] }), [`${x}: an enum of other values than booleans`]],
         [holding({ items: string }), [`${x}: a schema with no type`]],
         [holding({ enum: ["only"] }), [`${x}: a schema with no type`]],
         [holding({ type: "null" }), [`${x}: a type of null, which has no Swift type here`]],
@@ -638,6 +656,11 @@ describe("swiftClient", () => {
         [
           { Level: { type: "string", enum: ["low", "high"], nullable: true, const: "low" } },
           ["#/components/schemas/Level: the keywords nullable, const, which no Swift type here holds"],
+        ],
+        [
+          // An allOf of checks and a type isn't checks alone: it could change the shape.
+          holding({ type: "string", allOf: [{ format: "date" }, { type: "integer" }] }),
+          [`${x}: the keywords allOf, which no Swift type here holds`],
         ],
         [
           { Merged: { ...inline, allOf: [{}], not: {} } },

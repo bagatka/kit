@@ -32,6 +32,12 @@ export const NewNote = Schema.Struct({
   color: Color,
   shape: Shape,
   stamp: Circle,
+  // Checks Effect writes beside the type, the second in an allOf, and literals of a scalar: the
+  // server's to check, and the scalar in Swift.
+  label: Schema.String.check(Schema.isTrimmed(), Schema.isPattern(/^\P{Cc}*$/u)),
+  day: Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/)).annotate({ format: "date" }),
+  agreed: Schema.Literal(true),
+  size: Schema.Literals([1, 2]),
 }).annotate({ identifier: "NewNote" })
 
 export class NoteNotFound extends Schema.TaggedError<NoteNotFound>()(
@@ -112,6 +118,10 @@ export const wire = Effect.gen(function* () {
       color: "red",
       shape: { _tag: "Square", side: 2 },
       stamp: { _tag: "Circle", radius: Number.NaN },
+      label: "Week",
+      day: "2026-10-26",
+      agreed: true,
+      size: 2,
     }),
     noteNotFound: yield* encoded(NoteNotFound, new NoteNotFound({ id: NoteId.make("missing") })),
     notAllowed: yield* encoded(NotAllowed, new NotAllowed({ reason: "Read only" })),

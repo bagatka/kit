@@ -155,13 +155,35 @@ const describing = new Set([
   "contentMediaType",
 ])
 
+// An `allOf` of checks alone, which Effect writes for a second check of a Schema, such as
+// `allOf: [{ pattern: "..." }]` beside a first pattern: it describes, as its members' keywords do.
+const isChecksOnly = (members: unknown): boolean =>
+  Array.isArray(members) &&
+  members.length > 0 &&
+  members.every(
+    (member) =>
+      isRecord(member) &&
+      Object.keys(member).length > 0 &&
+      Object.keys(member).every((key) => describing.has(key) || key.startsWith("x-")),
+  )
+
 // The keywords a schema has besides those that describe it, which say its shape.
 const shapeKeywords = (schema: JsonRecord): ReadonlyArray<string> =>
-  Object.keys(schema).filter((key) => !describing.has(key) && !key.startsWith("x-"))
+  Object.keys(schema).filter(
+    (key) => !describing.has(key) && !key.startsWith("x-") && !(key === "allOf" && isChecksOnly(schema[key])),
+  )
 
 const nonFinite = ["Infinity", "-Infinity", "NaN"]
 
 const scalars = { integer: "Int", number: "Double", boolean: "Bool" } as const
+
+// Whether a JSON value is one of a scalar type's values.
+const isOf =
+  (type: keyof typeof scalars) =>
+  (value: unknown): boolean =>
+    type === "boolean"
+      ? typeof value === "boolean"
+      : typeof value === "number" && (type === "number" ? Number.isFinite(value) : Number.isSafeInteger(value))
 
 // Effect's number: a finite number, or one of the strings it writes for the others.
 const isEffectNumber = (members: ReadonlyArray<unknown>): boolean =>
@@ -368,11 +390,15 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
         return schema["format"] === "date-time" ? { _tag: "Date" } : { _tag: "String" }
       case "integer":
       case "number":
-      case "boolean":
-        if ("enum" in schema) {
-          return problem(path, "an enum of other values than strings")
+      case "boolean": {
+        // An enum of its own type's values, such as `[true]` for a Schema.Literal(true), is that
+        // type: the server checks which values. One of other values is refused.
+        const values = schema["enum"]
+        if ("enum" in schema && !(Array.isArray(values) && values.length > 0 && values.every(isOf(type)))) {
+          return problem(path, `an enum of other values than ${type}s`)
         }
         return { _tag: scalars[type] }
+      }
       case "array": {
         const items = valueType(schema["items"], at(path, "items"))
         return items === undefined ? undefined : { _tag: "Array", of: items }

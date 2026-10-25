@@ -109,7 +109,7 @@ struct RoundTrip {
         check(await exchange.requests.count == sent, "nothing is sent for a path parameter that isn't a segment")
 
         // A body as Effect takes it, a constant and a number that isn't finite in it; and errors.
-        let draft = NewNote(title: "Draft", color: .red, shape: .square(Square(side: 2)), stamp: Circle(radius: .nan))
+        let draft = NewNote(title: "Draft", color: .red, shape: .square(Square(side: 2)), stamp: Circle(radius: .nan), label: "Week", day: "2026-10-26", agreed: true, size: 2)
         await exchange.answer(with: 200, try part("note"))
         await exchange.answer(with: 403, try part("notAllowed"))
         await exchange.answer(with: 400, try part("badRequest"))

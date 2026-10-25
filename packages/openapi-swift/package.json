@@ -1,6 +1,6 @@
 {
   "name": "@bagatka/openapi-swift",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Writes a typed Swift 6 client of an HTTP API from its OpenAPI 3.1 document, such as Effect's HttpApi writes, on Foundation alone.",
   "keywords": [

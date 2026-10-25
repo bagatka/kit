@@ -55,7 +55,11 @@
     "stamp": {
       "_tag": "Circle",
       "radius": "NaN"
-    }
+    },
+    "label": "Week",
+    "day": "2026-10-26",
+    "agreed": true,
+    "size": 2
   },
   "noteNotFound": {
     "_tag": "NoteNotFound",

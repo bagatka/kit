@@ -95,9 +95,15 @@ func title(ofNote id: String, at url: URL, token: String) async -> String {
   may be `"Infinity"`, `"-Infinity"` or `"NaN"`; path and query parameters of strings, numbers,
   booleans, dates and enums; JSON bodies of any of these; one success status; and errors, 4xx and
   5xx answers of named objects with one constant, all told apart by the same property. Keywords that
-  only describe or validate a value, such as `pattern` or `maximum`, are the server's to check.
+  only describe or validate a value, such as `pattern` or `maximum`, are the server's to check, and
+  so is an `allOf` of such keywords alone, which Effect writes for a Schema's second check or a
+  `format` beside a check (`allOf: [{ "format": "date" }]`, a `String`). An `integer`, `number` or
+  `boolean` with an `enum` of its own type's values, as Effect writes `Schema.Literal(true)` or
+  `Schema.Literals([1, 2])`, is that type (`Bool`, `Double`; `Int` for integers); which of its
+  values, the server checks.
 - **What it refuses,** each with where and why: an inline object, enum or union, which needs a name
-  to become a Swift type; `allOf`, `not`, `const`, tuples (`prefixItems`) and any keyword it doesn't
+  to become a Swift type; an `allOf` with any other keyword in it, such as `type` or `$ref`; an
+  `enum` of other values than its type's; `not`, `const`, tuples (`prefixItems`) and any keyword it doesn't
   know; header and cookie parameters, arrays in a query; `default` and ranged responses such as `2XX`;
   a body that isn't JSON or isn't required; an error without a JSON body; a type that holds itself
   other than in an array or a dictionary, which a Swift struct can't; names Swift can't hold, or that
