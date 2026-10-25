@@ -9,7 +9,8 @@ export {
   mergeSketches,
   Quantile,
   QuantileSketch,
+  QuantileSketchesDiffer,
   quantileOf,
-  relativeAccuracy,
+  RelativeAccuracy,
   sketchOf,
 } from "./quantile-sketch.ts"

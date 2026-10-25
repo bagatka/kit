@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Exit, Option, Schema } from "effect"
+import { Effect, Exit, Option, Result, Schema } from "effect"
 
-import type { QuantileSketch } from "../src/index.ts"
+import type { QuantileSketch, RelativeAccuracy } from "../src/index.ts"
 import {
   countOf,
   emptySketch,
@@ -9,7 +9,6 @@ import {
   Quantile,
   QuantileSketch as QuantileSketchSchema,
   quantileOf,
-  relativeAccuracy,
   sketchOf,
 } from "../src/index.ts"
 
@@ -22,7 +21,11 @@ const durations = Array.from({ length: 10_000 }, (_, index) => {
   return Math.exp(3 + 2.5 * Math.abs(unit) ** 2)
 })
 
-const sketched = (values: ReadonlyArray<number>): QuantileSketch => sketchOf(values).sketch
+const sketched = (values: ReadonlyArray<number>, relativeAccuracy?: RelativeAccuracy): QuantileSketch =>
+  sketchOf(values, relativeAccuracy === undefined ? undefined : { relativeAccuracy }).sketch
+const accuracies: ReadonlyArray<RelativeAccuracy> = [0.005, 0.01, 0.02, 0.05]
+const merged = (sketches: ReadonlyArray<QuantileSketch>): QuantileSketch =>
+  Result.getOrElse(mergeSketches(sketches), () => emptySketch)
 
 // The `percent`th value by nearest rank, in whole numbers: ceil(percent * count / 100).
 const exactPercentile = (values: ReadonlyArray<number>, percent: number): number => {
@@ -33,17 +36,48 @@ const exactPercentile = (values: ReadonlyArray<number>, percent: number): number
 const read = (sketch: QuantileSketch, quantile: number): number =>
   Option.getOrElse(quantileOf(sketch, Quantile.make(quantile)), () => Number.NaN)
 
-// Within 2%, up to floating point's last digits: a value on a bucket's edge is exactly 2% from it.
-const isWithinAccuracy = (estimate: number, exact: number): boolean =>
-  exact === 0 ? estimate === 0 : Math.abs(estimate - exact) / exact <= relativeAccuracy * (1 + 1e-12)
+// Within the accuracy, 2% unless said, up to floating point's last digits: a value on a bucket's edge
+// is exactly the accuracy from it.
+const isWithinAccuracy = (estimate: number, exact: number, accuracy = 0.02): boolean =>
+  exact === 0 ? estimate === 0 : Math.abs(estimate - exact) / exact <= accuracy * (1 + 1e-12)
 
 describe("quantile sketches", () => {
-  it("read every quantile within 2% of the true value, by nearest rank", () => {
-    const sketch = sketched(durations)
-    for (let percent = 0; percent <= 100; percent += 1) {
-      const exact = exactPercentile(durations, percent)
-      assert.isTrue(isWithinAccuracy(read(sketch, percent / 100), exact), `p${percent}: ${exact}`)
+  it("read every quantile within their accuracy of the true value, by nearest rank, 2% by default", () => {
+    assert.strictEqual(sketched(durations).relativeAccuracy, 0.02)
+    for (const accuracy of accuracies) {
+      const sketch = sketched(durations, accuracy)
+      assert.strictEqual(sketch.relativeAccuracy, accuracy)
+      let worst = 0
+      for (let percent = 0; percent <= 100; percent += 1) {
+        const exact = exactPercentile(durations, percent)
+        const estimate = read(sketch, percent / 100)
+        assert.isTrue(isWithinAccuracy(estimate, exact, accuracy), `${accuracy}, p${percent}: ${exact}`)
+        worst = Math.max(worst, Math.abs(estimate - exact) / exact)
+      }
+      // The accuracy is used, not only met: a sketch of a finer one would err less than half of it.
+      assert.isAbove(worst, accuracy / 2, String(accuracy))
     }
+  })
+
+  it("grow about twice as large each time the accuracy halves", () => {
+    const sizes = accuracies.map((accuracy) => sketched(durations, accuracy).counts.length)
+    for (const [index, size] of sizes.slice(1).entries()) {
+      const finer = sizes[index] ?? 0
+      assert.isTrue(finer > 1.8 * size && finer < 2.7 * size, `${finer} against ${size}`)
+    }
+  })
+
+  it("refuse to merge sketches of different accuracies that hold values, and merge empty ones with any", () => {
+    const coarse = sketched(durations.slice(0, 100), 0.05)
+    const fine = sketched(durations.slice(100), 0.01)
+    const refused = mergeSketches([coarse, emptySketch, fine, sketched([3], 0.05)])
+    assert.isTrue(Result.isFailure(refused))
+    if (Result.isFailure(refused)) {
+      assert.deepStrictEqual(refused.failure.accuracies, [0.05, 0.01])
+      assert.strictEqual(refused.failure.message, "Sketches of different accuracies can't be merged: 0.05, 0.01")
+    }
+    // Empty sketches of any accuracy hold nothing to misread.
+    assert.deepStrictEqual(merged([emptySketch, fine, sketched([], 0.005)]), fine)
   })
 
   it("read p55 of 55 ones and 45 thousands as one, though 0.55 * 100 is 55.00000000000001", () => {
@@ -60,13 +94,13 @@ describe("quantile sketches", () => {
     // Every hundredth duration a zero, so that more than one part holds zeros.
     const values = durations.map((duration, index) => (index % 100 === 0 ? 0 : duration))
     const parts = [sketched(values.slice(0, 3_000)), emptySketch, sketched(values.slice(3_000))]
-    assert.deepStrictEqual(mergeSketches(parts), sketched(values))
-    assert.deepStrictEqual(mergeSketches([]), emptySketch)
+    assert.deepStrictEqual(merged(parts), sketched(values))
+    assert.deepStrictEqual(mergeSketches([]), Result.succeed(emptySketch))
 
     // A stored sketch may have empty buckets at its ends; the merge has none.
     const sketch = sketched(durations)
     const padded = { ...sketch, offset: sketch.offset - 2, counts: [0, 0, ...sketch.counts, 0] }
-    assert.deepStrictEqual(mergeSketches([padded]), sketch)
+    assert.deepStrictEqual(merged([padded]), sketch)
   })
 
   it("stay small however many values they hold", () => {
@@ -109,8 +143,10 @@ describe("quantile sketches", () => {
 
       // Made for another accuracy; buckets past every finite value; a negative or fractional count.
       for (const [label, refused] of [
-        ["another accuracy", { ...sketch, relativeAccuracy: 0.01 }],
+        ["an accuracy not on the list", { ...sketch, relativeAccuracy: 0.001 }],
         ["past every finite value", { ...sketch, offset: 17_744 }],
+        // Within 0.5%'s buckets, past 2%'s, which the sketch says it was made for.
+        ["past its own accuracy's buckets", { ...sketch, offset: 30_000 }],
         ["below 1e-9", { ...sketch, offset: -1_000_000_000 }],
         ["a negative count", { ...sketch, counts: [...sketch.counts, -1] }],
         ["a fractional count", { ...sketch, zeros: 0.5 }],
@@ -122,19 +158,23 @@ describe("quantile sketches", () => {
     }),
   )
 
-  it.effect("merge the widest sketches a store can hold quickly", () =>
+  it.effect("merge the widest sketches a store can hold quickly, at the finest accuracy", () =>
     Effect.gen(function* () {
-      // Every bucket a value can fall in, from 1e-9 to the largest finite value, in each of 100 sketches.
+      // Every bucket a value can fall in, from just above 1e-9 to the largest finite value, at 0.5%,
+      // and the one to spare on each side; in each of 100 sketches.
+      const span = sketched([1e-9 * 1.000_000_1, Number.MAX_VALUE], 0.005)
       const widest = yield* Schema.decodeEffect(QuantileSketchSchema)({
-        relativeAccuracy,
+        relativeAccuracy: 0.005,
         zeros: 0,
-        offset: -519,
-        counts: Array.from({ length: 18_264 }, () => 1),
+        offset: span.offset - 1,
+        counts: Array.from({ length: span.counts.length + 2 }, () => 1),
       })
+      const tooWide = { ...widest, offset: widest.offset - 1 }
+      assert.isTrue(Exit.isFailure(yield* Schema.decodeEffect(QuantileSketchSchema)(tooWide).pipe(Effect.exit)))
       const start = performance.now()
-      const merged = mergeSketches(Array.from({ length: 100 }, () => widest))
-      assert.strictEqual(countOf(merged), 1_826_400)
-      assert.isTrue(Number.isFinite(read(merged, 1)))
+      const all = merged(Array.from({ length: 100 }, () => widest))
+      assert.strictEqual(countOf(all), 100 * widest.counts.length)
+      assert.isTrue(Number.isFinite(read(all, 1)))
       assert.isBelow(performance.now() - start, 2_000)
     }),
   )

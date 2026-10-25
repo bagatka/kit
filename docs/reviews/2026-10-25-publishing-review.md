@@ -182,3 +182,15 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
   sketch of another accuracy refused.
 - **Its costs are numbers,** measured: "merging 100 of the widest takes milliseconds" was 21 to
   35 ms.
+- **The caller chooses the accuracy, decided with the founder:** 0.5%, 1%, 2% (the default) or
+  5%, `RelativeAccuracy`, a closed list so that every sketch has a known largest size, finest
+  73,053 buckets. Each sketch names its own, so reading and decoding take no setting.
+  `mergeSketches` now returns a `Result`: sketches holding values at different accuracies fail with
+  `QuantileSketchesDiffer`, since merging them exactly is impossible and folding into the coarser
+  would hide a worse guarantee; empty ones merge with any. Finer than 0.5% isn't offered: clocks
+  and minute-to-minute spread are coarser, and data that must be exact is few enough values to
+  keep. The README has a table of each accuracy's measured size and cost.
+- **Contract change, before the first publish:** the constant `relativeAccuracy` is gone (each
+  sketch has its own); `RelativeAccuracy` and `QuantileSketchesDiffer` are new; `sketchOf` takes
+  `{ relativeAccuracy }`; `mergeSketches` returns `Result<QuantileSketch, QuantileSketchesDiffer>`.
+  No package here calls it.
