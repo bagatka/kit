@@ -234,3 +234,17 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
 - **The README's example compiles** against the installed tarball with Cloudflare Workers' types:
   it used `env` without declaring it, and now declares it as `wrangler types` writes it.
 
+
+## `@bagatka/openapi-swift`
+
+- **Contract confirmed.** `swiftClient(document)` is one operation, a span of its own name, with
+  one error, `UnsupportedOpenApi`, that lists every problem at once; nothing it calls is a service.
+- **The README's examples compile, both.** The TypeScript used a top-level `yield*` and an
+  undeclared `NotesApi`; it is now a whole build script, an `HttpApi` of one endpoint to
+  `Sources/NotesAPI/NotesAPI.swift` through Effect's `FileSystem`. Run from the installed tarball
+  on Node with `NodeServices.layer`, it writes a 265-line client. The Swift example used neither
+  its result nor its error, which Swift 6 with warnings as errors refuses; it is now a function
+  that returns a note's title or what went wrong. Both compile together for iOS 18 with
+  `-swift-version 6 -warnings-as-errors`, as a library and with the main actor as the default.
+- **The contract's wording:** it takes the document as parsed JSON, such as `OpenApi.fromApi`
+  gives, not JSON text.

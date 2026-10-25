@@ -15,34 +15,60 @@ it runs on Apple's platforms and on Linux.
 
 ## Use it
 
+A build script that writes the Swift client of an API defined with Effect's `HttpApi`:
+
 ```ts
 import { swiftClient } from "@bagatka/openapi-swift"
-import { OpenApi } from "effect/http-api"
+import { Effect, FileSystem, Schema } from "effect"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api"
 
-// In a build script: the API's own definition, as its document, to the Swift file.
-const swift = yield* swiftClient(OpenApi.fromApi(NotesApi)) // the Swift file's text
-// Anything it doesn't write fails with UnsupportedOpenApi, listing every problem:
+// The API, as the server defines it: named schemas, which become Swift types.
+class Note extends Schema.Class<Note>("Note")({ id: Schema.String, title: Schema.String }) {}
+class NoteNotFound extends Schema.TaggedError<NoteNotFound>()(
+  "NoteNotFound",
+  { id: Schema.String },
+  { httpApiStatus: 404 },
+) {}
+const NotesApi = HttpApi.make("Notes")
+  .add(
+    HttpApiGroup.make("notes").add(
+      HttpApiEndpoint.get("getNote", "/notes/:id", { params: { id: Schema.String }, success: Note, error: NoteNotFound }),
+    ),
+  )
+  .annotate(OpenApi.Title, "Notes")
+
+const writeClient = Effect.gen(function* () {
+  const swift = yield* swiftClient(OpenApi.fromApi(NotesApi))
+  const fs = yield* FileSystem.FileSystem
+  yield* fs.writeFileString("Sources/NotesAPI/NotesAPI.swift", swift)
+})
+// writeClient: Effect<void, UnsupportedOpenApi | PlatformError, FileSystem>. Run it with your
+// runtime's FileSystem, such as NodeServices.layer from @effect/platform-node.
+// UnsupportedOpenApi lists every problem at once, where and why:
 // { path: "#/components/schemas/NoteList/properties/page", reason: "an inline object: name it as a schema of its own" }
 ```
 
 The Swift it writes, for an API titled Notes:
 
 ```swift
-let api = NotesAPI(baseURL: url, bearerToken: key, userAgent: "Notes/1.0 (12) iOS/27.1")
-do {
-    let note = try await api.getNote(id: id)
-} catch .noteNotFound(let error) {
-    // An error the API names, as its own type.
-} catch .unreachable {
-    // Offline: keep showing what was there.
-} catch {
-    // .unreadable or .unwritable: a status or a shape this client doesn't know, and why.
+func title(ofNote id: String, at url: URL, token: String) async -> String {
+    let api = NotesAPI(baseURL: url, bearerToken: token, userAgent: "Notes/1.0 (12) iOS/27.1")
+    do {
+        return try await api.getNote(id: id).title
+    } catch .noteNotFound(let missing) {
+        return "No note \(missing.id)" // An error the API names, as its own type.
+    } catch .unreachable {
+        return "Offline" // No connection, a timeout, or a cancelled call: keep showing what was there.
+    } catch {
+        return "\(error)" // .unreadable or .unwritable: a status or a shape this client doesn't know, and why.
+    }
 }
 ```
 
 ## Contract
 
-`src/index.ts`. `swiftClient` takes the document as JSON and returns the file, or fails with
+`src/index.ts`. `swiftClient` takes the document as parsed JSON, such as `OpenApi.fromApi` gives or
+`JSON.parse` of a file, and returns the Swift file's text, or fails with
 `UnsupportedOpenApi`, whose `problems` say where and what to change, every one at once.
 
 ## Does not own
