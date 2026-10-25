@@ -12,6 +12,11 @@ export class AppStoreConnectCredentialsInvalid extends Schema.TaggedError<AppSto
   override get message(): string {
     return `The App Store Connect credentials were refused: ${this.reason}`
   }
+
+  /** Asking again won't help. */
+  get isRetryable(): boolean {
+    return false
+  }
 }
 
 /**
@@ -25,6 +30,11 @@ export class AppStoreConnectCredentialsRefused extends Schema.TaggedError<AppSto
 ) {
   override get message(): string {
     return `App Store Connect refused the credentials: ${this.reason}`
+  }
+
+  /** Asking again won't help. */
+  get isRetryable(): boolean {
+    return false
   }
 }
 
@@ -43,6 +53,11 @@ export class AppStoreConnectForbidden extends Schema.TaggedError<AppStoreConnect
   override get message(): string {
     return `App Store Connect forbade the request: ${this.reason}`
   }
+
+  /** Asking again won't help. */
+  get isRetryable(): boolean {
+    return false
+  }
 }
 
 /**
@@ -58,6 +73,11 @@ export class AppStoreConnectRefused extends Schema.TaggedError<AppStoreConnectRe
   override get message(): string {
     return `App Store Connect refused the change: ${this.reason}`
   }
+
+  /** Asking again won't help. */
+  get isRetryable(): boolean {
+    return false
+  }
 }
 
 /**
@@ -71,6 +91,11 @@ export class AppStoreConnectUnavailable extends Schema.TaggedError<AppStoreConne
 ) {
   override get message(): string {
     return `App Store Connect is unavailable: ${this.reason}`
+  }
+
+  /** Asking again later may work. */
+  get isRetryable(): boolean {
+    return true
   }
 }
 

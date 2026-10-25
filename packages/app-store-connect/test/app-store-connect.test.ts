@@ -558,6 +558,7 @@ describe("AppStoreConnect", () => {
       )
 
       assert.isTrue(Option.isSome(answers[0]))
+      assert.isFalse(answers[1].isRetryable)
       assert.deepStrictEqual(plain(answers[1]), {
         _tag: "AppStoreConnectCredentialsRefused",
         reason:
@@ -617,9 +618,10 @@ describe("AppStoreConnect", () => {
         reason: "App Store Connect couldn't be reached",
       })
       assert.deepStrictEqual(plain(failures[5]), { _tag: "AppStoreConnectUnavailable", reason: "HTTP 500" })
-      // What a log shows carries the reason.
+      // What a log shows carries the reason, and only an outage is worth asking again.
       for (const failure of failures) {
         assert.include(failure.message, failure.reason)
+        assert.strictEqual(failure.isRetryable, failure._tag === "AppStoreConnectUnavailable")
       }
     }),
   )

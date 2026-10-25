@@ -34,6 +34,11 @@ export class ApnsCredentialsInvalid extends Schema.TaggedError<ApnsCredentialsIn
   override get message(): string {
     return `The APNs credentials were refused: ${this.reason}`
   }
+
+  /** Asking again won't help. */
+  get isRetryable(): boolean {
+    return false
+  }
 }
 
 /**
@@ -47,6 +52,11 @@ export class ApnsCredentialsRefused extends Schema.TaggedError<ApnsCredentialsRe
 }) {
   override get message(): string {
     return `APNs refused the credentials' provider token: ${this.reason}`
+  }
+
+  /** Asking again won't help. */
+  get isRetryable(): boolean {
+    return false
   }
 }
 
@@ -86,11 +96,16 @@ export class ApnsUnavailable extends Schema.TaggedError<ApnsUnavailable>()("Apns
   override get message(): string {
     return `APNs didn't take the push: ${this.reason}`
   }
+
+  /** Asking again later may work. */
+  get isRetryable(): boolean {
+    return true
+  }
 }
 
 const hosts: Readonly<Record<ApnsEnvironment, string>> = {
-  development: "https://api.sandbox.push.apple.com",
-  production: "https://api.push.apple.com",
+  development: "api.sandbox.push.apple.com",
+  production: "api.push.apple.com",
 }
 
 // APNs takes a provider token for an hour, and refuses one renewed more often than every 20 minutes.
@@ -169,7 +184,7 @@ export class Apns extends Context.Service<
             }),
           )
 
-        const attempt = Effect.fn("Apns.attempt")(function* (push: ApnsPush, token: string) {
+        const attempt = Effect.fnUntraced(function* (push: ApnsPush, token: string) {
           // A push no APNs takes is the caller's bug, never one to send again later.
           if (!bundleIdShape.test(push.bundleId)) {
             return yield* Effect.die("A push's bundle ID is letters, digits, '-' and '.'")
@@ -184,7 +199,9 @@ export class Apns extends Context.Service<
                   "apns-expiration":
                     push.expiresAt === "immediately" ? "0" : String(DateTime.toEpochSeconds(push.expiresAt)),
                 }
-          const request = yield* HttpClientRequest.post(`${hosts[push.environment]}/3/device/${push.deviceToken}`).pipe(
+          const request = yield* HttpClientRequest.post(
+            `https://${hosts[push.environment]}/3/device/${push.deviceToken}`,
+          ).pipe(
             HttpClientRequest.setHeaders({
               authorization: `bearer ${token}`,
               "apns-topic": topicOf(push),
@@ -196,11 +213,31 @@ export class Apns extends Context.Service<
             HttpClientRequest.bodyJson(push.payload),
             Effect.orDie,
           )
-          // The whole answer, its body read too, within 10 seconds.
+          // The whole answer, its body read too, within 10 seconds. The request's span is this
+          // package's: the URL holds the device token, which Effect's span would export as
+          // `url.full`, so it has OpenTelemetry's HTTP attributes with the path's template instead.
+          const host = hosts[push.environment]
           const response = yield* client.execute(request).pipe(
             Effect.flatMap((answered) =>
               Effect.map(answered.text, (text) => ({ status: answered.status, headers: answered.headers, text })),
             ),
+            Effect.tap((answered) =>
+              Effect.annotateCurrentSpan({
+                "http.response.status_code": answered.status,
+                ...(answered.status >= 400 ? { "error.type": String(answered.status) } : {}),
+              }),
+            ),
+            Effect.provideService(HttpClient.TracerDisabledWhen, () => true),
+            Effect.withSpan("POST", {
+              kind: "client",
+              attributes: {
+                "http.request.method": "POST",
+                "server.address": host,
+                "server.port": 443,
+                "url.scheme": "https",
+                "url.template": "/3/device/{deviceToken}",
+              },
+            }),
             Effect.timeout(Duration.seconds(10)),
             Effect.mapError(
               (error) =>
@@ -231,13 +268,19 @@ export class Apns extends Context.Service<
         })
 
         const send = Effect.fn("Apns.send")(function* (push: ApnsPush) {
+          yield* Effect.annotateCurrentSpan({ "apns.push_type": push.pushType, "apns.environment": push.environment })
           const token = yield* providerToken(undefined)
-          const answer = yield* attempt(push, token)
-          if (answer._tag !== "Rejected" || answer.reason !== "ExpiredProviderToken") {
-            return answer
-          }
-          const renewed = yield* providerToken(token)
-          return yield* attempt(push, renewed)
+          const first = yield* attempt(push, token)
+          const answer =
+            first._tag === "Rejected" && first.reason === "ExpiredProviderToken"
+              ? yield* attempt(push, yield* providerToken(token))
+              : first
+          // What APNs answered, which a successful span alone doesn't say.
+          yield* Effect.annotateCurrentSpan({
+            "apns.answer": answer._tag,
+            ...(answer._tag === "Accepted" ? {} : { "apns.reason": answer.reason }),
+          })
+          return answer
         })
 
         return Apns.of({ send })

@@ -56,3 +56,23 @@ published version, a change to it is a new version (PATTERNS.md, "Versions").
   one again after an outage repeats nothing; IDs in paths, and in Apple's answers, have Apple's
   shape; the token goes only to Apple's API. Reads return Apple's states and platforms as strings,
   as Apple names them, as decided in the second review.
+
+## Calling a service, and what it shows
+
+The founder asked that every package behave the same for its caller (retries, timeouts, errors)
+and be as visible in OpenTelemetry as .NET's own libraries are. What each did differed: whether a
+refused token was signed again, how "ask again later" was said, which internal steps were spans,
+and how spans were named. PATTERNS.md, "Calling a service, and what it shows", is now the one way;
+`apns` and `app-store-connect` follow it, `github-app` in its review.
+
+- **What Effect gives already,** checked in 4.0.6: `Effect.fn` spans, exported with logs and
+  metrics by `effect/observability`'s `Otlp`; HTTP client spans with OpenTelemetry's attributes,
+  without headers unless asked; trace levels (`Tracer.MinimumTraceLevel`) and log levels
+  (`References.MinimumLogLevel`) the host sets. Not: HTTP metrics, which spans give through a
+  Collector's span metrics.
+- **What a span costs,** measured: about 0.8 µs on Bun and 1.6 µs on Node per `Effect.fn` call even
+  with nothing exporting, against 0.1 µs untraced. So spans are for operations, never per item in a
+  hot loop.
+- **Found:** Effect's HTTP span put APNs's device token, a device's identifier, in `url.full` and
+  `url.path` of every push. apns now writes that span itself with `url.template`, and a test that
+  fails without it checks that the token appears in no span.

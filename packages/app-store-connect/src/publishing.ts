@@ -115,7 +115,7 @@ export const publishing = (api: AppleApi) => {
 
   // The editable version with the request's version string and release type: changed where they
   // differ, or a version made with them when the app has none.
-  const versionFor = Effect.fn("AppStoreConnect.versionFor")(function* (
+  const versionFor = Effect.fnUntraced(function* (
     appId: AppId,
     editable: Option.Option<VersionDraft>,
     request: VersionToSubmit,
@@ -158,7 +158,7 @@ export const publishing = (api: AppleApi) => {
   })
 
   // After the version string: Apple takes a build only for the version it was built as.
-  const attachBuild = Effect.fn("AppStoreConnect.attachBuild")(function* (draft: Preparing, buildId: BuildId) {
+  const attachBuild = Effect.fnUntraced(function* (draft: Preparing, buildId: BuildId) {
     if (draft.buildId === buildId) {
       return
     }
@@ -169,7 +169,7 @@ export const publishing = (api: AppleApi) => {
 
   // A phased release made for a version that should have one, or removed from one that shouldn't;
   // before release it is `INACTIVE`, and removing it cancels it.
-  const setPhased = Effect.fn("AppStoreConnect.setPhased")(function* (draft: Preparing, phased: boolean) {
+  const setPhased = Effect.fnUntraced(function* (draft: Preparing, phased: boolean) {
     const phasedReleaseId = draft.phasedReleaseId
     if (phased && phasedReleaseId === undefined) {
       yield* api.send("POST", "/v1/appStoreVersionPhasedReleases", {
@@ -186,7 +186,7 @@ export const publishing = (api: AppleApi) => {
     }
   })
 
-  const writeWhatsNew = Effect.fn("AppStoreConnect.writeWhatsNew")(function* (
+  const writeWhatsNew = Effect.fnUntraced(function* (
     versionId: AppStoreVersionId,
     notes: ReadonlyArray<LocalizedText>,
   ) {
@@ -207,7 +207,7 @@ export const publishing = (api: AppleApi) => {
   })
 
   // One locale's text: changed where it differs, made where there's none.
-  const writeLocalized = Effect.fn("AppStoreConnect.writeLocalized")(function* (
+  const writeLocalized = Effect.fnUntraced(function* (
     localized: Localized,
     existing: ReadonlyArray<Localization>,
     note: LocalizedText,
@@ -270,10 +270,7 @@ export const publishing = (api: AppleApi) => {
 
   // The submission's item holding the version, unless it was removed from it: Apple doesn't take a
   // removed item back into the same submission.
-  const itemOf = Effect.fn("AppStoreConnect.itemOf")(function* (
-    submissionId: ReviewSubmissionId,
-    versionId: AppStoreVersionId,
-  ) {
+  const itemOf = Effect.fnUntraced(function* (submissionId: ReviewSubmissionId, versionId: AppStoreVersionId) {
     const text = yield* api.get(`/v1/reviewSubmissions/${enc(submissionId)}/items`, {
       include: "appStoreVersion",
       limit: pageSize,
@@ -286,7 +283,7 @@ export const publishing = (api: AppleApi) => {
   // otherwise. In one App Review rejected (`UNRESOLVED_ISSUES`), the version's rejected item is first
   // marked `resolved`, the attribute Apple's API has for an item edited after a rejection; Apple
   // documents nothing more of it, and refuses with its detail if it wants otherwise.
-  const resubmit = Effect.fn("AppStoreConnect.resubmit")(function* (
+  const resubmit = Effect.fnUntraced(function* (
     submission: { readonly submissionId: ReviewSubmissionId; readonly state: string },
     item: { readonly id: string; readonly state: string | undefined },
   ) {
@@ -303,7 +300,7 @@ export const publishing = (api: AppleApi) => {
   })
 
   // The app's draft submission for the platform, or a new one.
-  const draftOf = Effect.fn("AppStoreConnect.draftOf")(function* (
+  const draftOf = Effect.fnUntraced(function* (
     appId: AppId,
     platform: Platform,
     draft: Option.Option<{ readonly id: ReviewSubmissionId }>,
@@ -322,7 +319,7 @@ export const publishing = (api: AppleApi) => {
     return created.data.id
   })
 
-  const submit = Effect.fn("AppStoreConnect.submit")(function* (submissionId: ReviewSubmissionId) {
+  const submit = Effect.fnUntraced(function* (submissionId: ReviewSubmissionId) {
     const text = yield* api.send("PATCH", `/v1/reviewSubmissions/${enc(submissionId)}`, {
       data: { type: "reviewSubmissions", id: submissionId, attributes: { submitted: true } },
     })

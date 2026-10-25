@@ -88,7 +88,7 @@ interface Signed {
  * request sent once more. Fails with `AppStoreConnectCredentialsInvalid` for credentials that can't
  * sign tokens Apple takes.
  */
-export const appleApi = Effect.fn("AppStoreConnect.api")(function* (
+export const appleApi = Effect.fnUntraced(function* (
   credentials: AppStoreConnectCredentials,
   crypto: AppStoreConnectCrypto,
 ) {
@@ -124,10 +124,7 @@ export const appleApi = Effect.fn("AppStoreConnect.api")(function* (
     )
 
   // One request with a token, and Apple's whole answer to it.
-  const ask = Effect.fn("AppStoreConnect.ask")(function* (
-    request: HttpClientRequest.HttpClientRequest,
-    stale: string | undefined,
-  ) {
+  const ask = Effect.fnUntraced(function* (request: HttpClientRequest.HttpClientRequest, stale: string | undefined) {
     const bearer = yield* token(stale)
     const authorized = HttpClientRequest.bearerToken(request, bearer)
     return yield* client.execute(authorized).pipe(
@@ -146,7 +143,7 @@ export const appleApi = Effect.fn("AppStoreConnect.api")(function* (
 
   // The text of Apple's answer to `request`; a token it refuses is renewed once. A 401 means Apple
   // took nothing, so sending a write again is safe.
-  const exchange = Effect.fn("AppStoreConnect.exchange")(function* (request: HttpClientRequest.HttpClientRequest) {
+  const exchange = Effect.fnUntraced(function* (request: HttpClientRequest.HttpClientRequest) {
     const first = yield* ask(request, undefined)
     if (first.status !== 401) {
       return yield* textOf(request, first)
@@ -155,7 +152,7 @@ export const appleApi = Effect.fn("AppStoreConnect.api")(function* (
     return yield* textOf(request, renewed)
   })
 
-  const get = Effect.fn("AppStoreConnect.get")(function* (path: string, urlParams: UrlParams) {
+  const get = Effect.fnUntraced(function* (path: string, urlParams: UrlParams) {
     const request = HttpClientRequest.get(`${api}${path}`, { urlParams, acceptJson: true })
     return yield* exchange(request)
   })
@@ -165,7 +162,7 @@ export const appleApi = Effect.fn("AppStoreConnect.api")(function* (
     request: HttpClientRequest.HttpClientRequest,
     what: string,
     pagesBefore: number,
-  ) => Effect.Effect<ReadonlyArray<string>, Failure> = Effect.fn("AppStoreConnect.pagesFrom")(function* (
+  ) => Effect.Effect<ReadonlyArray<string>, Failure> = Effect.fnUntraced(function* (
     request: HttpClientRequest.HttpClientRequest,
     what: string,
     pagesBefore: number,
@@ -190,12 +187,12 @@ export const appleApi = Effect.fn("AppStoreConnect.api")(function* (
     return [text, ...rest]
   })
 
-  const pages = Effect.fn("AppStoreConnect.pages")(function* (path: string, urlParams: UrlParams, what: string) {
+  const pages = Effect.fnUntraced(function* (path: string, urlParams: UrlParams, what: string) {
     const request = HttpClientRequest.get(`${api}${path}`, { urlParams, acceptJson: true })
     return yield* pagesFrom(request, what, 0)
   })
 
-  const send = Effect.fn("AppStoreConnect.send")(function* (
+  const send = Effect.fnUntraced(function* (
     method: "POST" | "PATCH" | "DELETE",
     path: string,
     body?: Schema.JsonObject,

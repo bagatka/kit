@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Cause, DateTime, Effect, Exit, Fiber, Layer, Redacted, Result, Schema, Struct } from "effect"
+import { Cause, DateTime, Effect, Exit, Fiber, Layer, Redacted, Result, Schema, Struct, Tracer } from "effect"
 import { Base64, Base64Url } from "effect/encoding"
 import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http"
 import { TestClock } from "effect/testing"
@@ -283,10 +283,57 @@ describe("Apns", () => {
       const error = yield* withApns(key.pem, apns, send().pipe(Effect.flip))
       assert.strictEqual(error._tag, "ApnsCredentialsRefused")
       assert.include(error.message, "InvalidProviderToken")
+      assert.isFalse(error.isRetryable)
       assert.strictEqual(apns.asked.length, 1)
       // Another 403 is about the push, and stays an answer.
       const answer = yield* withApns(key.pem, apns, send())
       assert.deepStrictEqual(answer, { _tag: "Rejected", status: 403, reason: "Forbidden" })
+    }),
+  )
+
+  it.effect("traces each push with what APNs answered, and never the device token", () =>
+    Effect.gen(function* () {
+      const key = yield* newKey()
+      const spans: Array<Tracer.NativeSpan> = []
+      const tracer = Tracer.make({
+        span: (options) => {
+          const span = new Tracer.NativeSpan(options)
+          spans.push(span)
+          return span
+        },
+      })
+      const apns = fakeApns([
+        { status: 403, body: '{"reason":"ExpiredProviderToken"}' },
+        { status: 400, body: '{"reason":"BadDeviceToken"}' },
+      ])
+      yield* withApns(key.pem, apns, send()).pipe(Effect.provideService(Tracer.Tracer, tracer))
+      const named = (name: string) =>
+        spans.filter((span) => span.name === name).map((span) => Object.fromEntries(span.attributes))
+      assert.deepStrictEqual(named("Apns.send"), [
+        {
+          "apns.push_type": "alert",
+          "apns.environment": "development",
+          "apns.answer": "Rejected",
+          "apns.reason": "BadDeviceToken",
+        },
+      ])
+      // Each request, as OpenTelemetry's HTTP client spans have it, the path by its template.
+      assert.deepStrictEqual(
+        named("POST").map((attributes) => [attributes["url.template"], attributes["http.response.status_code"]]),
+        [
+          ["/3/device/{deviceToken}", 403],
+          ["/3/device/{deviceToken}", 400],
+        ],
+      )
+      // Every name, attribute and event a tracer would export.
+      const exported: Array<string> = []
+      for (const span of spans) {
+        exported.push(span.name, ...[...span.attributes.values()].map(String))
+        for (const [name, , attributes] of span.events) {
+          exported.push(name, ...Object.values(attributes).map(String))
+        }
+      }
+      assert.notInclude(exported.join("\n"), push.deviceToken)
     }),
   )
 
@@ -322,6 +369,7 @@ describe("Apns", () => {
       for (const error of errors) {
         assert.strictEqual(error._tag, "ApnsUnavailable")
         assert.include(error.message, error.reason)
+        assert.isTrue(error.isRetryable)
       }
       assert.deepStrictEqual(
         errors.map((error) => error.reason),
@@ -386,6 +434,7 @@ describe("Apns", () => {
           Apns.layer(credentials, crypto.subtle).pipe(Layer.provide(fakeApns([]).layer)),
         ).pipe(Effect.scoped, Effect.flip)
         assert.strictEqual(error._tag, "ApnsCredentialsInvalid")
+        assert.isFalse(error.isRetryable)
         // Its reason says which is wrong, and its message holds the reason.
         assert.strictEqual(error.reason.includes(" ID"), wrong === "an ID", error.reason)
         assert.include(error.message, error.reason)

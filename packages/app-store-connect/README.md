@@ -178,6 +178,10 @@ A product that reads often and writes rarely can hold two clients, one per key, 
   page link outside the API, or an HTTP status other than 200, 201, 204, 401, 403, 409, 429 and 5xx
   is a defect, with a message that says what was off. Apple's 400 and 422 are requests in a shape it
   doesn't take: this client's bug.
+- **Traced by operation.** Each method is a span (`AppStoreConnect.prepareVersion`), and each
+  request in it Effect's `HttpClient` span with OpenTelemetry's HTTP attributes; its URLs hold IDs
+  and bundle IDs, never a token or personal data. It logs nothing (PATTERNS.md, "Calling a
+  service").
 - **Apple's filters aren't documented as exact.** Only an app whose bundle ID equals the one asked
   for is returned, and only a build with exactly the version and build number asked for.
 - **Apple limits each key's requests per rolling hour** (3,500 in its documentation's example; its

@@ -115,6 +115,12 @@ development for builds Xcode installs, production for TestFlight and the App Sto
   once and never keep it; or absent, for Apple's policy of up to 30 days.
 - **An answer that isn't APNs's** (no JSON body, or a reason that isn't one of Apple's camel-case
   words) is `ApnsUnavailable`, never a reason made up or passed into logs.
+- **Traced without the device token.** `Apns.send` is a span with the push type, the environment,
+  and APNs's answer and reason (`apns.answer`, `apns.reason`); each request in it is an HTTP client
+  span with OpenTelemetry's attributes and the path as `url.template`, `/3/device/{deviceToken}`,
+  never the token, which is a device's identifier. That span is this package's, not Effect's
+  `HttpClient`'s, so no `traceparent` goes to APNs. It logs nothing (PATTERNS.md, "Calling a
+  service").
 - **HTTP/2 is the host's.** APNs speaks only HTTP/2; a client of HTTP/1.1 can't read its answer.
   `fetch` speaks it on deployed Workers, Node 26 and Deno 2, as pushes to APNs's sandbox show; Bun
   1.4's doesn't, and neither does workerd's under `wrangler dev`. Not reaching APNs is
