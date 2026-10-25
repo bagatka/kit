@@ -151,6 +151,5 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
 - **One line of the list was wrong.** A URL's password went "up to the `@` that starts the host",
   but it goes to the first `@`, so `user:pa@ss@host` leaves `ss`. URLs must write that `@` as `%40`,
   which is removed whole; the list now says what happens, under "Does not recognize".
-- **Open, for the founder:** npm tokens (`npm_`) and GitLab's (`glpat-`) aren't on the list. The
-  list grows with a product's need, not a review's imagination: add them when a product's logs can
-  hold them.
+- **npm and GitLab tokens are on the list, decided with the founder:** `npm_` and 36 characters or
+  more, and `glpat-` and 20 or more, as CI logs can hold them.

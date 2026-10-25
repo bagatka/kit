@@ -52,8 +52,8 @@ written another way passes through.
   may be empty.
 - **Keys by their published prefixes:** Stripe (`sk_` and `rk_` live and test, `whsec_`), OpenAI and
   Anthropic (`sk-`), GitHub (`ghp_`, `gho_`, `ghs_`, `ghu_`, `ghr_`, `github_pat_`), AWS access key
-  IDs (`AKIA`, `ASIA`), Slack (`xox...-`, `xapp-`), Google API keys (`AIza`), and the caller's own
-  prefixes.
+  IDs (`AKIA`, `ASIA`), Slack (`xox...-`, `xapp-`), Google API keys (`AIza`), npm (`npm_`), GitLab
+  personal access tokens (`glpat-`), and the caller's own prefixes.
 - **Secret query, fragment and `;` parameters by name:** `token`, `access_token`, `refresh_token`,
   `id_token`, `code`, `password`, `secret`, `client_secret`, `api_key`, `key`, `sig`, `signature`,
   `session`, `X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-Security-Token`, also in a URL encoded

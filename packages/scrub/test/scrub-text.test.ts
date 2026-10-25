@@ -33,6 +33,7 @@ const recognized: ReadonlyArray<readonly [string, string]> = [
     `AK·IAFAKEFAKEFAKE1234 AS·IAFAKEFAKEFAKE1234 xox·b-${key} xa·pp-1-${key} AIz·a${key}`,
     "[token] ".repeat(4) + "[token]",
   ],
+  [`np·m_${key}FAKE7 glp·at-${key}`, "[token] [token]"],
   // Secret parameters by name, also in a URL encoded into another.
   [
     "GET /cb?code=4/0AY0e&state=x#access_token=abc;session=s",

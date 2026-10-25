@@ -33,6 +33,8 @@ const keyShapes = [
   String.raw`A(?:KI|SI)A[0-9A-Z]{16}(?![A-Za-z0-9])`, // AWS access key IDs
   String.raw`(?:xox[a-z]|xapp)-[A-Za-z0-9-]{10}[A-Za-z0-9-]*`, // Slack
   String.raw`AIza[A-Za-z0-9_-]{35}[A-Za-z0-9_-]*`, // Google API keys
+  String.raw`npm_[A-Za-z0-9]{36}[A-Za-z0-9]*`, // npm
+  String.raw`glpat-[A-Za-z0-9_-]{20}[A-Za-z0-9_-]*`, // GitLab personal access tokens
 ]
 const keys = new RegExp(`${keyStart}(?:${keyShapes.join("|")})`, "g")
 
