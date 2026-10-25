@@ -53,10 +53,13 @@ const reservedTypes = new Set([
   "Int64",
   "JSONDecoder",
   "JSONEncoder",
+  "KeyedDecodingContainer",
   "Never",
   "Optional",
   "RawRepresentable",
+  "RawValue",
   "Result",
+  "Self",
   "Sendable",
   "Set",
   "String",
@@ -85,10 +88,15 @@ const caseProblems = (
   values: ReadonlyArray<string>,
   taken: ReadonlyArray<string>,
   of: string,
-): ReadonlyArray<Problem> =>
-  values.flatMap((value, index) => {
+): ReadonlyArray<Problem> => {
+  // The first value that makes each case.
+  const firstOf = new Map<string, string>()
+  return values.flatMap((value) => {
     const name = caseName(value)
-    const earlier = values.slice(0, index).find((other) => caseName(other) === name)
+    const earlier = firstOf.get(name)
+    if (earlier === undefined) {
+      firstOf.set(name, value)
+    }
     if (swiftName(name) === undefined) {
       return [{ path, reason: `${stringLiteral(value)} makes no Swift case name of ${of}: give it a letter` }]
     }
@@ -102,6 +110,7 @@ const caseProblems = (
     }
     return []
   })
+}
 
 // Why a parameter's name can't be written, if it can't.
 const parameterProblem = (parameter: string, isRepeated: boolean): string | undefined => {
@@ -146,15 +155,18 @@ const nameProblems = (api: Api): ReadonlyArray<Problem> => {
           }
         }
         break
-      case "Enum":
-        for (const [index, value] of declaration.values.entries()) {
+      case "Enum": {
+        const seen = new Set<string>()
+        for (const value of declaration.values) {
           if (swiftName(value) === undefined || value === "rawValue") {
             problems.push({ path: schema(declaration.name), reason: `its value ${value} can't be a Swift name` })
-          } else if (declaration.values.indexOf(value) !== index) {
+          } else if (seen.has(value)) {
             problems.push({ path: schema(declaration.name), reason: `its value ${value} is given twice` })
           }
+          seen.add(value)
         }
         break
+      }
       case "Union":
         problems.push(
           ...caseProblems(
@@ -176,9 +188,10 @@ const nameProblems = (api: Api): ReadonlyArray<Problem> => {
     ),
   )
   for (const operation of api.operations) {
-    const names = [...operation.pathParameters, ...operation.queryParameters].map((parameter) => parameter.name)
-    for (const [index, parameter] of names.entries()) {
-      const reason = parameterProblem(parameter, names.indexOf(parameter) !== index)
+    const seen = new Set<string>()
+    for (const { name: parameter } of [...operation.pathParameters, ...operation.queryParameters]) {
+      const reason = parameterProblem(parameter, seen.has(parameter))
+      seen.add(parameter)
       if (reason !== undefined) {
         problems.push({
           path: at("#/paths", operation.path),
@@ -210,27 +223,81 @@ const heldBy = (declaration: Declaration): ReadonlyArray<string> => {
   }
 }
 
+// The types that hold themselves, through any others: those on a cycle of what each holds. One pass
+// of Tarjan's strongly connected components, with a stack of its own rather than the call stack's,
+// in time linear in the types and what they hold.
+const typesHoldingThemselves = (api: Api): ReadonlySet<string> => {
+  const holds = new Map(api.declarations.map((declaration) => [declaration.name, heldBy(declaration)]))
+  const index = new Map<string, number>()
+  const lowest = new Map<string, number>()
+  const onStack = new Set<string>()
+  const stack: Array<string> = []
+  const cyclic = new Set<string>()
+  for (const root of holds.keys()) {
+    if (index.has(root)) {
+      continue
+    }
+    // Each type being visited, and how many of what it holds have been looked at.
+    const visiting: Array<[string, number]> = [[root, 0]]
+    index.set(root, index.size)
+    lowest.set(root, index.get(root) ?? 0)
+    stack.push(root)
+    onStack.add(root)
+    while (visiting.length > 0) {
+      const top = visiting[visiting.length - 1]
+      if (top === undefined) {
+        break
+      }
+      const [name, next] = top
+      const edges = holds.get(name) ?? []
+      const child = edges[next]
+      if (child !== undefined) {
+        top[1] = next + 1
+        if (!holds.has(child)) {
+          continue
+        }
+        if (!index.has(child)) {
+          index.set(child, index.size)
+          lowest.set(child, index.get(child) ?? 0)
+          stack.push(child)
+          onStack.add(child)
+          visiting.push([child, 0])
+        } else if (onStack.has(child)) {
+          lowest.set(name, Math.min(lowest.get(name) ?? 0, index.get(child) ?? 0))
+        }
+        continue
+      }
+      visiting.pop()
+      const parent = visiting[visiting.length - 1]
+      if (parent !== undefined) {
+        lowest.set(parent[0], Math.min(lowest.get(parent[0]) ?? 0, lowest.get(name) ?? 0))
+      }
+      if (lowest.get(name) === index.get(name)) {
+        const component: Array<string> = []
+        for (let member = stack.pop(); member !== undefined; member = stack.pop()) {
+          onStack.delete(member)
+          component.push(member)
+          if (member === name) {
+            break
+          }
+        }
+        if (component.length > 1 || edges.includes(name)) {
+          for (const member of component) {
+            cyclic.add(member)
+          }
+        }
+      }
+    }
+  }
+  return cyclic
+}
+
 // Each type that holds itself, through any others, other than in an array or a dictionary: a Swift
 // struct can't, as its size would have no end.
 const recursionProblems = (api: Api): ReadonlyArray<Problem> => {
-  const declared = new Map(api.declarations.map((declaration) => [declaration.name, declaration]))
-  const holdsItself = (start: Declaration): boolean => {
-    const seen = new Set<string>()
-    const waiting = [...heldBy(start)]
-    for (let next = waiting.pop(); next !== undefined; next = waiting.pop()) {
-      if (next === start.name) {
-        return true
-      }
-      const declaration = declared.get(next)
-      if (!seen.has(next) && declaration !== undefined) {
-        seen.add(next)
-        waiting.push(...heldBy(declaration))
-      }
-    }
-    return false
-  }
+  const cyclic = typesHoldingThemselves(api)
   return api.declarations
-    .filter((declaration) => holdsItself(declaration))
+    .filter((declaration) => cyclic.has(declaration.name))
     .map((declaration) => ({
       path: at("#/components/schemas", declaration.name),
       reason: `${declaration.name} holds itself, other than in an array or a dictionary: Swift's structs can't`,
@@ -247,7 +314,8 @@ const recursionProblems = (api: Api): ReadonlyArray<Problem> => {
  * arrays, dictionaries, free-form JSON, nullable values, dates (`format: date-time`), and numbers
  * that may not be finite. Fails with `UnsupportedOpenApi`, listing every problem with where and
  * why, for anything else, such as an inline object, which needs a name to become a Swift type.
- * Pure, and takes time linear in the document.
+ * Pure, and takes time linear in the document and the Swift it writes; a schema nested more than
+ * 100 deep, through references too, is refused.
  */
 export const swiftClient = Effect.fn("swiftClient")(function* (document: unknown) {
   const { api, problems } = readDocument(document)

@@ -199,7 +199,9 @@ const isEffectNumber = (members: ReadonlyArray<unknown>): boolean =>
       nonFinite.every((value) => isStrings(member["enum"]) && member["enum"].includes(value)),
   )
 
-const isNull = (schema: unknown): boolean => isRecord(schema) && schema["type"] === "null"
+// A member that is null and nothing else: one with more beside its type isn't.
+const isNull = (schema: unknown): boolean =>
+  isRecord(schema) && schema["type"] === "null" && shapeKeywords(schema).length === 1
 
 // The members of a union, `anyOf` or `oneOf`, if the schema is one.
 const membersOf = (schema: JsonRecord): ReadonlyArray<unknown> | undefined => {
@@ -209,6 +211,11 @@ const membersOf = (schema: JsonRecord): ReadonlyArray<unknown> | undefined => {
 
 // The keyword a union's members are under, for where a problem with one is.
 const membersKeyOf = (schema: JsonRecord): "anyOf" | "oneOf" => (Array.isArray(schema["anyOf"]) ? "anyOf" : "oneOf")
+
+// The keywords a union has beside its members, which change what it holds: an `allOf` with a type,
+// or a second list of members, such as `oneOf` beside `anyOf`.
+const besideMembers = (schema: JsonRecord): ReadonlyArray<string> =>
+  shapeKeywords(schema).filter((key) => key !== membersKeyOf(schema))
 
 // The one value of a single-valued string enum, the way a constant property is written.
 const constantOf = (schema: unknown): string | undefined =>
@@ -220,15 +227,24 @@ const constantOf = (schema: unknown): string | undefined =>
     ? schema["enum"][0]
     : undefined
 
-// Whether two JSON values are alike, whatever the order of their keys.
-const sameJson = (a: unknown, b: unknown): boolean => {
+// How deep a schema may nest, through references too: deeper is refused, so no document can
+// exhaust the stack.
+const maxDepth = 100
+
+// Whether two JSON values are alike, whatever the order of their keys; values nested deeper than
+// `maxDepth` are taken as different.
+const sameJson = (a: unknown, b: unknown, depth = 0): boolean => {
+  if (depth > maxDepth) {
+    return false
+  }
   if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((item, index) => sameJson(item, b[index]))
+    return a.length === b.length && a.every((item, index) => sameJson(item, b[index], depth + 1))
   }
   if (isRecord(a) && isRecord(b)) {
     const keys = Object.keys(a)
     return (
-      keys.length === Object.keys(b).length && keys.every((key) => Object.hasOwn(b, key) && sameJson(a[key], b[key]))
+      keys.length === Object.keys(b).length &&
+      keys.every((key) => Object.hasOwn(b, key) && sameJson(a[key], b[key], depth + 1))
     )
   }
   return a === b
@@ -319,6 +335,10 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
     )
   }
 
+  // The schemas that are declarations, each judged once, so a reference to one costs no more than
+  // its name.
+  const declared = new Set(Object.keys(schemas).filter((name) => isDeclared(schemas[name])))
+
   // Named schemas that stand for a value type, while one is being read, so one that refers to
   // itself is a problem rather than a loop.
   const resolving = new Set<string>()
@@ -326,7 +346,19 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
   // times is read in time linear in its size.
   const resolved = new Map<string, ValueType | undefined>()
 
+  // How deep the schema being read is, through references too.
+  let depth = 0
   const valueType = (schema: unknown, path: string): ValueType | undefined => {
+    if (depth >= maxDepth) {
+      return problem(path, `a schema nested more than ${maxDepth} deep, through references too`)
+    }
+    depth += 1
+    const type = readValueType(schema, path)
+    depth -= 1
+    return type
+  }
+
+  const readValueType = (schema: unknown, path: string): ValueType | undefined => {
     if (!isRecord(schema)) {
       return problem(path, "a schema must be an object")
     }
@@ -341,8 +373,7 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
         return problem(path, `a reference with ${shape.filter((key) => key !== "$ref").join(", ")} beside it`)
       }
       const name = swiftNames.get(referenced) ?? referenced
-      const target = schemas[referenced]
-      if (isDeclared(target)) {
+      if (declared.has(referenced)) {
         return { _tag: "Named", name }
       }
       if (resolving.has(name)) {
@@ -350,7 +381,7 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
       }
       if (!resolved.has(referenced)) {
         resolving.add(name)
-        resolved.set(referenced, valueType(target, at(schemasPath, referenced)))
+        resolved.set(referenced, valueType(schemas[referenced], at(schemasPath, referenced)))
         resolving.delete(name)
       }
       return resolved.get(referenced)
@@ -358,7 +389,7 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
     const anyOf = membersOf(schema)
     if (anyOf !== undefined) {
       // A union says its shape with its members alone, nothing beside them.
-      const beside = shape.filter((key) => key !== membersKeyOf(schema))
+      const beside = besideMembers(schema)
       if (beside.length > 0) {
         return problem(path, `the keywords ${beside.join(", ")}, which no Swift type here holds`)
       }
@@ -444,7 +475,7 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
   for (const [schemaName, schema] of Object.entries(schemas)) {
     const name = swiftNames.get(schemaName) ?? schemaName
     const path = at(schemasPath, schemaName)
-    if (!isDeclared(schema) || !isRecord(schema) || firstOf.get(name) !== schemaName) {
+    if (!declared.has(schemaName) || !isRecord(schema) || firstOf.get(name) !== schemaName) {
       // A value type, read where it is used; or a copy of a declaration.
       continue
     }
@@ -457,7 +488,7 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
       continue
     }
     if (schema["type"] !== "object") {
-      const extra = shapeKeywords(schema).filter((key) => !["anyOf", "oneOf", "discriminator"].includes(key))
+      const extra = besideMembers(schema).filter((key) => key !== "discriminator")
       if (extra.length > 0) {
         problem(path, `the keywords ${extra.join(", ")}, which no Swift type here holds`)
       }
@@ -471,14 +502,14 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
       problem(path, `the keywords ${unsupported.join(", ")}, which no Swift type here holds`)
       continue
     }
-    const required = isStrings(schema["required"]) ? schema["required"] : []
+    const required = new Set(isStrings(schema["required"]) ? schema["required"] : [])
     const properties: Array<Property> = []
     const constants: Array<Constant> = []
     for (const [key, property] of Object.entries(isRecord(schema["properties"]) ? schema["properties"] : {})) {
       const propertyPath = at(at(path, "properties"), key)
       const constant = constantOf(property)
       if (constant !== undefined) {
-        if (required.includes(key)) {
+        if (required.has(key)) {
           constants.push({ key, value: constant })
         } else {
           problem(propertyPath, "a constant that may be missing: make it required")
@@ -487,7 +518,7 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
       }
       const type = valueType(property, propertyPath)
       if (type !== undefined) {
-        properties.push({ key, type, required: required.includes(key) })
+        properties.push({ key, type, required: required.has(key) })
       }
     }
     const declaration: Struct = { _tag: "Struct", name, properties, constants }
@@ -507,11 +538,16 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
         types.push(struct)
       }
     }
-    // The keys every member has a constant of.
-    const [first, ...others] = types
-    const shared = (first?.constants ?? [])
+    // The keys every member has a constant of, counted once per member: a member given twice is a
+    // problem of its own, below.
+    const distinct = [...new Set(types)]
+    const counts = new Map<string, number>()
+    for (const constant of distinct.flatMap((struct) => struct.constants)) {
+      counts.set(constant.key, (counts.get(constant.key) ?? 0) + 1)
+    }
+    const shared = (types[0]?.constants ?? [])
       .map((constant) => constant.key)
-      .filter((key) => others.every((struct) => struct.constants.some((constant) => constant.key === key)))
+      .filter((key) => counts.get(key) === distinct.length)
     const [discriminator, ...more] = shared
     if (discriminator === undefined || more.length > 0) {
       problem(path, "a union's members must share exactly one constant property, such as _tag")
@@ -533,15 +569,20 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
   }
 
   const isError = (name: string) => structs.get(name)?.constants.length === 1
+  const declarationOf = new Map(declarations.map((declaration) => [declaration.name, declaration]))
 
   // An error response's errors, by name: a named error, or each of a union of them, named or not.
   const errorNames = (schema: unknown, path: string): ReadonlyArray<string> => {
+    if (isRecord(schema) && membersOf(schema) !== undefined && besideMembers(schema).length > 0) {
+      problem(path, `the keywords ${besideMembers(schema).join(", ")}, which no Swift type here holds`)
+      return []
+    }
     const members = isRecord(schema) ? (membersOf(schema) ?? [schema]) : [schema]
     const memberPath = isRecord(schema) ? at(path, membersKeyOf(schema)) : path
     const names = members.flatMap((member, index) => {
       const type = valueType(member, members.length === 1 ? path : at(memberPath, index))
       const named = type?._tag === "Named" ? type.name : undefined
-      const union = declarations.find((declaration) => declaration.name === named)
+      const union = named === undefined ? undefined : declarationOf.get(named)
       if (union?._tag === "Union") {
         return union.cases.map((entry) => entry.type)
       }
@@ -555,6 +596,10 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
   }
 
   const operations: Array<Operation> = []
+  const operationNames = new Set<string>()
+  const enumNames = new Set(
+    declarations.flatMap((declaration) => (declaration._tag === "Enum" ? [declaration.name] : [])),
+  )
   for (const [route, item] of Object.entries(paths)) {
     const itemPath = at("#/paths", route)
     if (!isPath(route)) {
@@ -581,9 +626,10 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
       const name = typeof id === "string" ? camelCase(id.split(".").at(-1) ?? "") : ""
       if (!/^[a-z][A-Za-z0-9]*$/.test(name)) {
         problem(at(path, "operationId"), "an operation needs an ID whose last part is a Swift name")
-      } else if (operations.some((other) => other.name === name)) {
+      } else if (operationNames.has(name)) {
         problem(at(path, "operationId"), `another operation is already called ${name}`)
       }
+      operationNames.add(name)
 
       const pathParameters: Array<Parameter> = []
       const queryParameters: Array<Parameter> = []
@@ -601,9 +647,7 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
         const scalar = type._tag === "Optional" ? type.of : type
         const isText =
           ["String", "Date", "Int", "Double", "Bool"].includes(scalar._tag) ||
-          declarations.some(
-            (declaration) => declaration._tag === "Enum" && scalar._tag === "Named" && declaration.name === scalar.name,
-          )
+          (scalar._tag === "Named" && enumNames.has(scalar.name))
         if (!isText) {
           problem(parameterPath, "a parameter must be a string, a number, a boolean, a date, or an enum")
           continue

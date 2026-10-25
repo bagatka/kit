@@ -201,7 +201,8 @@ const writeErrors = (api: Api): string =>
 // A parameter's value as the text a path or query holds.
 const textOf = (parameter: Parameter): string => `Self.text(${name(parameter.name)})`
 
-const writeOperation = (api: Api, operation: Operation): string => {
+// `errorValues`: each error's value of `Api.errorKey`, by its name.
+const writeOperation = (operation: Operation, errorValues: ReadonlyMap<string, string>): string => {
   const query = operation.queryParameters.toSorted((left, right) => Number(right.required) - Number(left.required))
   const parameters = [
     ...operation.pathParameters.map((parameter) => `${name(parameter.name)}: ${swiftType(parameter.type)}`),
@@ -210,14 +211,16 @@ const writeOperation = (api: Api, operation: Operation): string => {
       (parameter) => `${name(parameter.name)}: ${swiftType(parameter.type)}${parameter.required ? "" : "? = nil"}`,
     ),
   ]
-  const path = operation.pathParameters.reduce(
-    (built, parameter) => built.replace(`{${parameter.name}}`, `\\(Self.segment(${textOf(parameter)}))`),
-    stringLiteral(operation.path),
+  // Each parameter in its place, in one pass over the path.
+  const byName = new Map(operation.pathParameters.map((parameter) => [parameter.name, parameter]))
+  const path = stringLiteral(operation.path).replace(
+    /\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
+    (written, parameterName: string) => {
+      const parameter = byName.get(parameterName)
+      return parameter === undefined ? written : `\\(Self.segment(${textOf(parameter)}))`
+    },
   )
-  const errorCases = operation.errors.map((error) => {
-    const value = api.errors.find((named) => named.name === error)?.value ?? error
-    return `\`.${caseName(value)}\``
-  })
+  const errorCases = operation.errors.map((error) => `\`.${caseName(errorValues.get(error) ?? error)}\``)
   const documentation = [
     operation.description,
     errorCases.length === 0 ? undefined : `Fails with ${errorCases.join(", ")}, or as any call can.`,
@@ -249,6 +252,7 @@ const writeOperation = (api: Api, operation: Operation): string => {
 
 const writeClient = (api: Api): string => {
   const client = clientName(api)
+  const errorValues = new Map(api.errors.map((error) => [error.name, error.value]))
   return [
     docComment(
       `A client of the ${oneLine(api.title)} API: one method per operation, each one request. Every method runs off the caller's actor, and fails with \`APIError\`.`,
@@ -273,7 +277,7 @@ const writeClient = (api: Api): string => {
     "        self.userAgent = userAgent",
     "        self.transport = transport ?? { request in try await URLSession.shared.data(for: request) }",
     "    }",
-    ...api.operations.flatMap((operation) => ["", writeOperation(api, operation)]),
+    ...api.operations.flatMap((operation) => ["", writeOperation(operation, errorValues)]),
     "}",
   ].join("\n")
 }

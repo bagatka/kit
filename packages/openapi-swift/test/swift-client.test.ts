@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Schema } from "effect"
+import { Clock, Effect, Schema } from "effect"
 
 import { Problem, swiftClient, UnsupportedOpenApi } from "../src/index.ts"
 import { notesDocument, wire } from "./fixtures/notes-api.ts"
@@ -69,6 +69,18 @@ const documentOf = (schemas: Readonly<Record<string, unknown>>, operation: Reado
     },
   },
 })
+
+// Chains of 20,000 named schemas, each the next one, or the next one or null.
+const chain = (link: (next: unknown) => unknown) =>
+  documentOf(
+    Object.fromEntries(
+      Array.from({ length: 20_000 }, (_, index) => [
+        `Link${index}`,
+        link(index === 19_999 ? string : ref(`Link${index + 1}`)),
+      ]),
+    ),
+    { responses: { "200": { description: "A link", ...json(ref("Link0")) } } },
+  )
 
 // A document of these paths and schemas.
 const documentWith = (paths: Readonly<Record<string, unknown>>, schemas: Readonly<Record<string, unknown>> = {}) => ({
@@ -164,6 +176,7 @@ describe("swiftClient", () => {
         "#/paths/~1things/get/parameters/1: only path and query parameters are supported",
         "#/paths/~1things/get/responses/404: an error must have a JSON body, application/json, of a named error",
         "#/paths/~1things/get/responses/default: a response must have a status code: default and ranges such as 2XX aren't supported",
+        "#/components/schemas/Self: Self is a name the Swift client, Swift or Foundation takes; rename the schema",
         "#/components/schemas/Self/properties/self: a property's key no Swift name can hold",
         "#/components/schemas/Task: Task is a name the Swift client, Swift or Foundation takes; rename the schema",
         "#/components/schemas/Loop: Loop holds itself, other than in an array or a dictionary: Swift's structs can't",
@@ -180,6 +193,9 @@ describe("swiftClient", () => {
             properties: { next: { anyOf: [{ $ref: "#/components/schemas/Loop" }, { type: "null" }] } },
           },
           Task: { type: "object", properties: { done: { type: "boolean" } } },
+          // Names the client's own code uses, which a type of the API would hide from it.
+          KeyedDecodingContainer: { type: "object", properties: { done: { type: "boolean" } } },
+          RawValue: { type: "string", enum: ["a", "b"] },
           Holder: {
             type: "object",
             properties: { self: { type: "string" }, hashValue: { type: "integer" }, "JSON keys": { type: "string" } },
@@ -197,8 +213,10 @@ describe("swiftClient", () => {
         "#/components/schemas/Holder/properties/self: a property's key no Swift name can hold",
         "#/components/schemas/Holder/properties/hashValue: a property's key Swift's Hashable takes for itself",
         "#/components/schemas/Holder/properties/JSON keys: a property's key the client takes for its own, JSON keys",
+        "#/components/schemas/KeyedDecodingContainer: KeyedDecodingContainer is a name the Swift client, Swift or Foundation takes; rename the schema",
         '#/components/schemas/Kinds: "a.b" and "a_b" both make the case aB of the union',
         '#/components/schemas/Kinds: "*" makes no Swift case name of the union: give it a letter',
+        "#/components/schemas/RawValue: RawValue is a name the Swift client, Swift or Foundation takes; rename the schema",
         "#/components/schemas/Task: Task is a name the Swift client, Swift or Foundation takes; rename the schema",
         "#/components/schemas/Values: its value rawValue can't be a Swift name",
         "#/components/schemas/Values: its value fine is given twice",
@@ -670,6 +688,22 @@ describe("swiftClient", () => {
           },
           ["#/components/schemas/Half: an enum of other values than integers"],
         ],
+        // A null member is null and nothing else.
+        [
+          holding({
+            anyOf: [
+              { type: "boolean", enum: [true] },
+              { type: "null", allOf: [{ type: "string" }] },
+            ],
+          }),
+          [`${x}: ${union}`],
+        ],
+        [holding({ anyOf: [{ type: "boolean" }, { type: "null", not: {} }] }), [`${x}: ${union}`]],
+        // A union lists its members once: anyOf and oneOf together would say two different things.
+        [
+          { ...shapes, Choice: { anyOf: [ref("Circle"), ref("Square")], oneOf: [ref("Circle")] } },
+          ["#/components/schemas/Choice: the keywords oneOf, which no Swift type here holds"],
+        ],
         // Nor beside a nullable value, Effect's number, or a constant, which are read before the rest.
         [
           holding({ anyOf: [{ type: "boolean", enum: [true] }, nothing], allOf: [{ type: "boolean" }] }),
@@ -996,6 +1030,9 @@ describe("swiftClient", () => {
                   "404": { description: "Mixed", ...json({ anyOf: [ref("NotFound"), string] }) },
                   "409": { description: "None", ...json({ anyOf: [] }) },
                   "422": { description: "Inline", ...json({ oneOf: [ref("NotFound"), inline] }) },
+                  // A union of errors says what it is with its members alone.
+                  "500": { description: "Checked", ...json({ anyOf: [ref("NotFound")], allOf: [{ type: "string" }] }) },
+                  "501": { description: "Both", ...json({ anyOf: [ref("NotFound")], oneOf: [ref("Plain")] }) },
                 },
               },
             },
@@ -1009,6 +1046,8 @@ describe("swiftClient", () => {
             `#/paths/~1things/get/responses/409/content/application~1json: ${errors}`,
             "#/paths/~1things/get/responses/422/content/application~1json/oneOf/1: an inline object: name it as a schema of its own",
             `#/paths/~1things/get/responses/422/content/application~1json: ${errors}`,
+            "#/paths/~1things/get/responses/500/content/application~1json: the keywords allOf, which no Swift type here holds",
+            "#/paths/~1things/get/responses/501/content/application~1json: the keywords oneOf, which no Swift type here holds",
           ],
         ],
       ]
@@ -1182,6 +1221,59 @@ describe("swiftClient", () => {
           assert.deepStrictEqual(yield* problemsOf(document), problems)
         }
       }),
+  )
+
+  it.effect("refuses a schema nested more than 100 deep, through references too, rather than exhaust the stack", () =>
+    Effect.gen(function* () {
+      const deep = "a schema nested more than 100 deep, through references too"
+      assert.deepStrictEqual(yield* problemsOf(chain((next) => next)), [`#/components/schemas/Link99: ${deep}`])
+      assert.deepStrictEqual(yield* problemsOf(chain((next) => ({ anyOf: [next, { type: "null" }] }))), [
+        `#/components/schemas/Link49/anyOf/0: ${deep}`,
+      ])
+    }),
+  )
+
+  it.live("reads a document in time linear in its size, its worst cases too", () =>
+    Effect.gen(function* () {
+      // Each shape 8,000 wide, which took seconds when a reference read its schema again, or a check
+      // looked at every type for each type: a chain of objects, a union of many, an object of many
+      // properties referred to many times, and Effect's number with many checks.
+      const n = 8000
+      const range = Array.from({ length: n }, (_, index) => index)
+      const document = documentOf(
+        {
+          ...Object.fromEntries(
+            range.map((index) => [
+              `Link${index}`,
+              objectOf({ next: index === n - 1 ? string : ref(`Link${index + 1}`) }),
+            ]),
+          ),
+          ...Object.fromEntries(range.map((index) => [`Item${index}`, tagged(`Item${index}`)])),
+          Choice: { anyOf: range.map((index) => ref(`Item${index}`)) },
+          Large: objectOf(Object.fromEntries(range.map((index) => [`p${index}`, { type: "boolean" }]))),
+          Checked: {
+            anyOf: [
+              { type: "number", allOf: range.map(() => ({ minimum: 0 })) },
+              { type: "string", enum: ["Infinity", "-Infinity", "NaN"] },
+            ],
+          },
+          Holder: objectOf(
+            Object.fromEntries(
+              range.flatMap((index) => [
+                [`l${index}`, ref("Large")],
+                [`c${index}`, ref("Checked")],
+              ]),
+            ),
+          ),
+          Everything: objectOf({ link: ref("Link0"), choice: ref("Choice"), holder: ref("Holder") }),
+        },
+        { responses: { "200": { description: "Everything", ...json(ref("Everything")) } } },
+      )
+      const started = yield* Clock.currentTimeMillis
+      yield* swiftClient(document)
+      // Some 200 ms on a laptop; quadratic, it took over ten seconds.
+      assert.isBelow((yield* Clock.currentTimeMillis) - started, 2000)
+    }),
   )
 
   it.effect("refuses every type that holds itself, through any others, other than in an array or a dictionary", () =>
