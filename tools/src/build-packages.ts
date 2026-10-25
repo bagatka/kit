@@ -134,9 +134,13 @@ const pointMapsAtSource = Effect.fn("pointMapsAtSource")(function* (target: stri
   return problems
 }, Effect.orDie)
 
-// What `npm pack --json` says it packed.
+// What `npm pack --json` says it packed, as npm 12 says it: each package by its name. npm 11 said a
+// list, which this refuses: the npm is flake.nix's.
 const PackedText = Schema.fromJsonString(
-  Schema.Array(Schema.Struct({ filename: Schema.String, files: Schema.Array(Schema.Struct({ path: Schema.String })) })),
+  Schema.Record(
+    Schema.String,
+    Schema.Struct({ filename: Schema.String, files: Schema.Array(Schema.Struct({ path: Schema.String })) }),
+  ),
 )
 
 // The only files a package's tarball may hold.
@@ -153,7 +157,12 @@ const pack = Effect.fn("pack")(function* (root: string, target: string, tarballs
   if (packed.exitCode !== 0) {
     return { tarball: undefined, problems: [`npm can't pack it:\n${packed.output}`] }
   }
-  const [result] = yield* Schema.decodeEffect(PackedText)(packed.stdout).pipe(Effect.orDie)
+  const report = yield* Schema.decodeEffect(PackedText)(packed.stdout).pipe(
+    Effect.catchTag("SchemaError", () =>
+      Effect.die(`npm pack --json didn't answer as npm 12 does; use flake.nix's npm (./dev):\n${packed.stdout}`),
+    ),
+  )
+  const [result] = Object.values(report)
   if (result === undefined) {
     return { tarball: undefined, problems: ["npm packed nothing."] }
   }

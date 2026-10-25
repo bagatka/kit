@@ -51,7 +51,7 @@ it into the tarball `npm publish` takes. The check installs those tarballs side 
 them in Node, and type-checks a program that uses them with the DOM's types and with Cloudflare
 Workers', so a package that would break for a stranger fails here first.
 `.github/workflows/publish.yml` publishes each `name@version` npm doesn't have, from a job that
-installs nothing and can publish only from `main`, in the `npm` environment.
+installs only npm and can publish only from `main`, in the `npm` environment.
 
 ## Platforms
 

@@ -6,8 +6,8 @@
 # Two jobs, so nothing that installs or runs dependencies can publish:
 # - `build` installs, checks, tests, and packs each package into the tarball the check installed and
 #   type-checked. It can read the repository and nothing else.
-# - `publish` installs nothing and runs no code of the repository's: it takes those tarballs and
-#   publishes them. Only it may ask GitHub for the OIDC token npm accepts, and only in the `npm`
+# - `publish` installs only npm, at flake.nix's version, and runs no code of the repository's: it
+#   takes those tarballs and publishes them. Only it may ask GitHub for the OIDC token npm accepts, and only in the `npm`
 #   environment, which allows deployments from `main` alone.
 #
 # Setting up, once, by the founder (AGENTS.md, "Publishing"):
@@ -55,7 +55,9 @@ jobs:
           cd source
           git fetch --quiet --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" "$GITHUB_SHA"
           git checkout --quiet --detach FETCH_HEAD
-          # The Bun in package.json's packageManager, the one flake.nix pins.
+          # flake.nix's npm, which packs the tarballs, and the Bun in package.json's packageManager,
+          # the one flake.nix pins.
+          npm install --global --silent npm@12.2.1
           npm install --global --silent "$(node -p 'require("./package.json").packageManager')"
           bun install --frozen-lockfile
           bun run check
@@ -87,11 +89,15 @@ jobs:
       # The OIDC token npm's trusted publishing and provenance read.
       id-token: write
     steps:
-      # flake.nix's Node, with npm 11: trusted publishing needs npm 11.5.1 and Node 22.14 or later.
+      # flake.nix's Node: trusted publishing needs npm 11.5.1 and Node 22.14 or later.
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26.12.0
+
+      # flake.nix's npm, the one that packed the tarballs; npm checks its integrity as it installs.
+      - name: Set up npm
+        run: npm install --global --silent npm@12.2.1
 
       - name: Take the tarballs
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

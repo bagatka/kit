@@ -48,7 +48,7 @@ conventions should be able to read any file and see every dependency, conversion
   code as itself: it is written as an escape, `"\u2028"`, and `bun run check` refuses it otherwise.
 - **Tests run with `TZ=Pacific/Chatham` and `LANG=tr_TR.UTF-8`** (`bun run test`): a 45-minute
   offset, comma decimals, and a dotless `ı`, so code that depends on the machine fails everywhere.
-- **Toolchain:** `./dev` provides the pinned Bun and Node.
+- **Toolchain:** `./dev` provides the pinned Bun, Node, and npm.
 
 ## 3. Packages
 
@@ -248,7 +248,7 @@ Packages read what strangers send: tokens, keys, bodies, documents, text.
   `LICENSE`, `dist/` and `src/`, and installs the tarballs themselves for the checks.
 - **A push to `main` publishes** each `name@version` npm doesn't have, dependencies first, with
   provenance (`.github/workflows/publish.yml`), in two jobs: one installs, checks, tests and packs,
-  and can only read the repository; the other installs and runs nothing of ours, publishes those
+  and can only read the repository; the other installs only npm and runs nothing of ours, publishes those
   tarballs, and alone may ask for the token npm accepts, in the `npm` environment, which only `main`
   deploys to, and only from main's newest commit. npm signs it in by trusted publishing bound to
   that environment; a package's very first version goes with a granular token of that environment,
@@ -271,7 +271,7 @@ The configuration files are the specification; this entry says what each one own
 | `tools/src/published-manifest.ts` | What npm's `package.json` says |
 | `.github/workflows/check.yml` | CI: `bun run check` and `bun run test` on every push |
 | `.github/workflows/publish.yml` | Publishing to npm, and how npm signs it in |
-| `flake.nix`, `flake.lock` | Bun and Node |
+| `flake.nix`, `flake.lock` | Bun, Node, and npm |
 
 - **Every Effect diagnostic that is on fails the build,** suggestions included. Rules are turned
   off only in their config file, with a one-line reason, scoped to the paths that need it.

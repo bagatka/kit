@@ -31,7 +31,9 @@ jobs:
           cd source
           git fetch --quiet --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" "$GITHUB_SHA"
           git checkout --quiet --detach FETCH_HEAD
-          # The Bun in package.json's packageManager, the one flake.nix pins.
+          # flake.nix's npm, which `bun run check` packs with, and the Bun in package.json's
+          # packageManager, the one flake.nix pins.
+          npm install --global --silent npm@12.2.1
           npm install --global --silent "$(node -p 'require("./package.json").packageManager')"
           bun install --frozen-lockfile
           # A frozen install doesn't notice a dependency removed from a package.json; a lock that

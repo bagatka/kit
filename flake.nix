@@ -22,6 +22,28 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          node = pkgs.nodejs_latest;
+
+          # npm's newest release, on the Node below. Node bundles an older npm and nixpkgs has no
+          # npm of its own, so it is npm's tarball from the registry, by the integrity npm publishes
+          # (`npm view npm@<version> dist.integrity`); npm bundles its dependencies. CI installs the
+          # same version (.github/workflows/*.yml).
+          npm = pkgs.stdenvNoCC.mkDerivation rec {
+            pname = "npm";
+            version = "12.2.1";
+            src = pkgs.fetchurl {
+              url = "https://registry.npmjs.org/npm/-/npm-${version}.tgz";
+              hash = "sha512-bKCmFRVT/BB+YPEYbZwQ1XUI3N5t4xKSpU1MxOjo7z3iWzKBJ0ZXRC1xFdEN+TC7N5TdywaBzf2dMXGJq/e2PQ==";
+            };
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+            dontBuild = true;
+            installPhase = ''
+              mkdir -p $out/lib/node_modules/npm
+              cp -r . $out/lib/node_modules/npm
+              makeWrapper ${node}/bin/node $out/bin/npm --add-flags $out/lib/node_modules/npm/bin/npm-cli.js
+              makeWrapper ${node}/bin/node $out/bin/npx --add-flags $out/lib/node_modules/npm/bin/npx-cli.js
+            '';
+          };
         in
         {
           # Only what `bun run check`, `bun run test` and `bun run build` run, as the shell is every
@@ -34,9 +56,13 @@
               # Installs packages and runs the repository's programs.
               pkgs.bun
 
-              # Vitest, `npm pack`, and the check that npm's packages install and import run on
-              # Node: its newest release, which CI's `node-version` names exactly.
-              pkgs.nodejs_latest
+              # Before Node, so its `npm` is the one found, not the one Node bundles: `npm pack` and
+              # the installs of npm's packages that `bun run check` makes.
+              npm
+
+              # Vitest, and the check that npm's packages install and import, run on Node: its
+              # newest release, which CI's `node-version` names exactly.
+              node
             ];
           };
         }

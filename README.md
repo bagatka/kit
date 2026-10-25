@@ -51,7 +51,7 @@ Each package's README shows its use, its failures, and the decisions behind it.
 ## Working on kit
 
 ```sh
-./dev            # a shell with the pinned Bun and Node (Nix)
+./dev            # a shell with the pinned Bun, Node, and npm (Nix)
 bun install
 bun run check    # types and Effect's diagnostics, lint, format, and every package built and installed
 bun run test
