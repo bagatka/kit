@@ -231,6 +231,8 @@ describe("passkeys", () => {
         changedData((data) => Uint8Array.from(data, (byte, index) => (index === 54 ? 8 : byte))),
         // A key whose algorithm is RS256 (-257) instead of ES256.
         changedData((data) => Uint8Array.from(data, (byte, index) => (index === 55 + 16 + 4 ? 0x39 : byte))),
+        // A key cut short by its last byte.
+        changedData((data) => data.subarray(0, data.length - 1)),
         // Bytes after the key, without the flag that says extensions follow.
         changedData((data) => Uint8Array.of(...data, 0xa0)),
         // Backed up, but not eligible for backup.
@@ -242,6 +244,7 @@ describe("passkeys", () => {
           "The authenticator data has no credential",
           "The credential's ID is out of bounds: 16 to 1023 bytes, within the data",
           "The credential's ID is out of bounds: 16 to 1023 bytes, within the data",
+          "The passkey's key isn't ES256 on P-256, in the form devices write it",
           "The passkey's key isn't ES256 on P-256, in the form devices write it",
           "The authenticator data has bytes after the key",
           "The authenticator data says backed up but not eligible",

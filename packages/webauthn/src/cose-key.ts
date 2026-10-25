@@ -48,7 +48,7 @@ const startsWith = (bytes: Uint8Array, at: number, expected: Uint8Array) =>
 export const publicKeyOf = (
   bytes: Uint8Array,
 ): { readonly spki: Uint8Array<ArrayBuffer>; readonly length: number } | undefined => {
-  if (!startsWith(bytes, 0, head) || !startsWith(bytes, head.length + 32, yHead)) {
+  if (bytes.length < coseKeyLength || !startsWith(bytes, 0, head) || !startsWith(bytes, head.length + 32, yHead)) {
     return undefined
   }
   const spki = new Uint8Array(spkiHead.length + 64)
