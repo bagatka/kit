@@ -286,3 +286,16 @@ It found the rest sound: the build and the publish workflow, run with stand-ins 
 (a stale `main` refused, published versions skipped, a token npm refuses stops the job); the
 attestation reader under 3,000 malformed registrations; `otlp-protobuf` under 6,000 malformed
 bodies; and the closed list of sketch accuracies.
+
+A second audit, in the same way, read the fixes above and every package again.
+
+| Package | What was found | Now |
+|---|---|---|
+| `scrub` | A URL password over 128 characters, such as an IAM token, was left whole, and a quoted secret with over 256 escapes left its tail, which a second scrub then took: the caps that kept the patterns linear broke the README's "up to the first `@`" and the idempotence guarantee | A value is found by its start and ended by a scan of its own, read once, however long; below the old caps, the output is the old one |
+| `openapi-swift` | A property named `JSON keys`, or a query parameter named `query items` or `request body`, wrote Swift that doesn't compile: raw identifiers made the client's own names ones a document can have | Those names, and `the answer`, are refused with their reason; each parameter's problem now has its own reason |
+| `webauthn` | A signature's DER isn't checked: a wrong tag, a wrong length or a byte after it still signs in. The first review cut strict DER because "verification refuses what it would"; it doesn't, as Web Crypto sees only r and s. No sign-in as someone else follows | **Open, for the founder:** check DER strictly again, or say it isn't checked |
+
+It found the rest sound: no device token, manifest code or private text in exported spans on any
+failure it tried; every truncated COSE key refused; every accuracy within bounds near the largest
+finite value; scrub linear to 16 million characters on both engines; webhooks and `otlp-protobuf`
+under 40,000 arbitrary bodies each.
