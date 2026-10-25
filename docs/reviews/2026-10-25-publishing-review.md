@@ -268,3 +268,21 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
   workspaces and is a development tool, so the name says so, and no npm, Yarn or pnpm user installs
   it to have their repository refused. This repository's own rules stay in
   `tools/src/workspace-rules.ts`.
+
+## Audit before publishing
+
+A separate thread (GPT-6.1-sol, at high effort) read the twenty commits above and proved each
+finding with a program on Node and on Bun. Each was confirmed again here with a test of our own,
+which fails on the old code; the fixes are this repository's own, not the audit's suggestions.
+
+| Package | What was found | Now |
+|---|---|---|
+| `apns`, `github-app` | Their own HTTP spans, which keep the device token and the manifest code out of `url.full`, ended with the raw `HttpClientError` on a transport failure; Effect's OTLP exporter writes its message, with the whole URL, into `exception.message` (**high**: a manifest code still unused redeems the app's secrets) | The timeout and the package's error (`ApnsUnavailable`, `GitHubUnavailable`) are inside the span, so it ends with them; the tests read each ended span's error as the exporter does |
+| `quantile-sketch` | Near `Number.MAX_VALUE`, γ^i overflowed before the scale brought it back, so values were read as the largest finite one, past their accuracy at 0.5%, 1% and 5% (9.5% at 5%) | The scale is added in the exponent; every value from 10% below the largest finite one is read within its accuracy, at each accuracy |
+| `webauthn` | A COSE key cut short inside its y was filled with zeros; a key whose y ends in 0 registered and signed in (from before this review) | A key shorter than its 77 bytes is refused as not in the form devices write |
+| `scrub` | Scrubbing the result again changed it, against the guarantee (from before this review): glued addresses, a later pattern's marker changing what an earlier one saw at its edge, and a declined credential hiding the one inside it | No pattern starts or ends against a marker that it or a later pattern writes, glued addresses go in one scrub, and nothing declined is consumed; 0 in 17 million texts, each shape found kept as a test. The README's worst case says what is measured: under 70 ms a megabyte on Node, 40 on Bun |
+
+It found the rest sound: the build and the publish workflow, run with stand-ins for `git` and `npm`
+(a stale `main` refused, published versions skipped, a token npm refuses stops the job); the
+attestation reader under 3,000 malformed registrations; `otlp-protobuf` under 6,000 malformed
+bodies; and the closed list of sketch accuracies.
