@@ -167,3 +167,18 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
 - **The example's SVG scans:** rendered at 600 pixels, zxing-cpp reads back the exact link.
 - **Its costs hold,** measured again: a link 0.3 ms, version 40 7 to 8 ms, ten megabytes refused
   in under 1 ms, on Node 26 and Bun 1.4.
+
+## `@bagatka/quantile-sketch`
+
+- **Contract confirmed.** Pure functions of plain data, so no `Effect`, no span and no error type
+  of its own: values it can't hold are counted in `refused`, an empty sketch reads as
+  `Option.none()`, and a stored sketch is checked by decoding it with `QuantileSketch`. Effect's
+  own `Metric.summary` keeps quantiles of a sliding window in memory, which can't be stored or
+  merged, so this isn't a second way to do what Effect does.
+- **The README's example compiles,** declaring what it reads, and now shows decoding what a store
+  gave back, `Schema.decodeUnknownResult(Schema.Array(QuantileSketch))`, which the prose only
+  mentioned. Checked against the installed tarball; run on 100,000 made-up durations in ten
+  sketches, through JSON: p50, p95 and p99 within 0.2%, 0.9% and 1.7% of the exact values, and a
+  sketch of another accuracy refused.
+- **Its costs are numbers,** measured: "merging 100 of the widest takes milliseconds" was 21 to
+  35 ms.
