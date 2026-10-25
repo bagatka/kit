@@ -68,8 +68,8 @@ written another way passes through.
   and quotes stay; `null`, `true`, `false` and structures (`{`, `[`) stay.
 - **`Cookie:` and `Set-Cookie:` header values,** to the end of the line.
 - **PEM private keys,** through their END line, or to the end of their base64 when cut short.
-- **Emails** with an ASCII local part and domain, also with `%40` for the `@`; a domain ending like an
-  image (`logo@2x.png`) isn't one.
+- **Emails** with an ASCII local part and domain, also with `%40` for the `@`, and glued to another; a
+  domain ending like an image (`logo@2x.png`) isn't one.
 - **Card numbers:** 13 to 19 digits starting with 2 to 6 that pass the Luhn checksum and aren't one
   digit repeated, written together or in four groups of four separated alike by one space or dash;
   never after a decimal point.
@@ -82,13 +82,14 @@ Each becomes a marker that says what was there: `[token]` (keys, tokens, Authori
 ## Does not recognize
 
 Everything else, among it: Go's `\u0026` escapes and text escaped more than once; AWS Signature V4's
-header as a whole (its `Signature=` goes as a named secret); `curl -u user:password`; cookies outside
-header lines; percent-encoded parameter names; other card groupings and separators (no-break space,
-`+`, `%20`, 4-6-5); emails with letters outside ASCII; keys of services not on the list; Azure's
-`AccountKey` as such; `password: =` and `password => ...`; what follows a bare `@` inside a URL's
-password (`user:pa@ss@host` leaves `ss`; URLs write it `%40`, which is removed); names, postal addresses, phone numbers,
-and passwords in plain prose. Callers check `isSecretName` for named values, which catches more
-than patterns.
+header as a whole (its `Signature=` goes as a named secret); `curl -u user:password`; cookies
+outside header lines; percent-encoded parameter names; other card groupings and separators (no-break
+space, `+`, `%20`, 4-6-5); emails with letters outside ASCII; keys of services not on the list;
+Azure's `AccountKey` as such; `password: =` and `password => ...`; a `[` or `]` in a URL's user or
+password, which URLs percent-encode; what follows a bare `@` inside a URL's password
+(`user:pa@ss@host` leaves `ss`; URLs write it `%40`, which is removed); names, postal addresses,
+phone numbers, and passwords in plain prose. Callers check `isSecretName` for named values, which
+catches more than patterns.
 
 ## Depends on
 
@@ -113,6 +114,6 @@ Nothing.
 - **IP addresses stay,** since they are evidence when investigating abuse.
 - **Cost:** about 4 ms a megabyte of logs on Bun and on Node (8 to 17 when they hold an `@`, the
   only text searched for emails), under 1.5 µs a 200-character line; the worst text found takes
-  under 50 ms a megabyte.
+  under 70 ms a megabyte on Node and under 40 on Bun.
 - **Engines:** lookbehind in regular expressions, so every current Chrome, Edge, Node, Bun, Deno and
   Cloudflare Workers, Firefox 78, Safari 16.4.

@@ -7,7 +7,9 @@
 // amount from any other start; every repetition is bounded or one character class, and no group
 // repeats inside a lookahead or lookbehind, since engines keep state for each such repetition and,
 // past a few million characters, V8 throws and JavaScriptCore stops matching; and scrubbing twice
-// changes nothing, since no marker (`[token]`) can start or end a new match.
+// changes nothing, since no pattern starts right after, or ends right before, a marker (`[token]`)
+// that it or a later pattern writes, where the first scrub read the text the marker replaced; and
+// none consumes text it declines, which would hide a match starting inside it.
 
 // Right after an escape, where text starts again: `\n`, `\r` or `\t` in JSON, `%3D` in a URL.
 const afterEscape = String.raw`(?<=\\[nrt]|%[0-9A-Fa-f]{2})`
@@ -30,7 +32,7 @@ const keyShapes = [
   String.raw`(?:(?:sk|rk)_(?:live|test)|whsec)_[A-Za-z0-9]{10}[A-Za-z0-9]*`, // Stripe
   String.raw`sk-[A-Za-z0-9_-]{20}[A-Za-z0-9_-]*`, // OpenAI, Anthropic
   String.raw`(?:gh[pousr]|github_pat)_[A-Za-z0-9_]{20}[A-Za-z0-9_]*`, // GitHub
-  String.raw`A(?:KI|SI)A[0-9A-Z]{16}(?![A-Za-z0-9])`, // AWS access key IDs
+  String.raw`A(?:KI|SI)A[0-9A-Z]{16}(?![A-Za-z0-9]|\[(?:email|card)\])`, // AWS access key IDs
   String.raw`(?:xox[a-z]|xapp)-[A-Za-z0-9-]{10}[A-Za-z0-9-]*`, // Slack
   String.raw`AIza[A-Za-z0-9_-]{35}[A-Za-z0-9_-]*`, // Google API keys
   String.raw`npm_[A-Za-z0-9]{36}[A-Za-z0-9]*`, // npm
@@ -68,9 +70,10 @@ const ownKeys = (prefixes: ReadonlyArray<string> | undefined): ReadonlyArray<Reg
 }
 
 // The password in `scheme://user:password@host`, up to the first `@` after it; never a port
-// (`localhost:3000/users/@me`), nor the `:` of another `://`.
+// (`localhost:3000/users/@me`), nor the `:` of another `://`. Neither part holds `[` or `]`, which a
+// URL's user and password can't (RFC 3986), so a marker never becomes one.
 const urlPassword =
-  /(?<=[A-Za-z0-9])(:\/\/[^\s:/?#@"']*:(?!\/\/))(?![0-9]{1,5}(?:[/?#\s"']|$))[^\s?#@"'\\]{1,128}(?=@)/g
+  /(?<=[A-Za-z0-9])(:\/\/[^\s:/?#@"'[\]]*:(?!\/\/))(?![0-9]{1,5}(?:[/?#\s"']|$))[^\s?#@"'\\[\]]{1,128}(?=@)/g
 
 // A scheme: a word (`Bearer`, `ApiKey`) or words joined by dashes (`AWS4-HMAC-SHA256`). A key, with
 // digits and no dash, isn't one.
@@ -100,20 +103,18 @@ const notEncodedProse = String.raw`(?!${prose}(?:[.:]{0,8}(?!${credential})|\+|%
 // A parameter rather than a credential: `realm="api"` after `Bearer`, `user_id=42` after "token".
 const notParameter = String.raw`(?![A-Za-z_][A-Za-z0-9_.-]{0,40}=[^\s=,;])`
 
+// A credential: 8 characters or more, or 4 or more with what base64 and hex have and short words
+// don't: a digit, padding, or both cases. Checked ahead, so text that isn't one is never consumed,
+// and a credential starting inside it is found in the same scrub.
+const credentialAhead = String.raw`(?=${credential}{8}|${credential}{0,6}[0-9=]|${credential}{0,6}[a-z]${credential}{0,6}[A-Z]|${credential}{0,6}[A-Z]${credential}{0,6}[a-z])`
+
 // A credential after `Bearer`, `Basic` or `Token` (in their three spellings) elsewhere than a
 // header, after any space but a line break, unless it is a word of prose or a parameter.
 const schemeCredential = new RegExp(
-  String.raw`(?:\b|${afterEscape})(Bearer|bearer|BEARER|Basic|basic|BASIC|Token|token|TOKEN)` +
-    String.raw`((?:[^\S\r\n]+${notProse}|(?:%20|\+)${notEncodedProse})${notParameter})(${credential}{4}${credential}*)`,
+  String.raw`((?:\b|${afterEscape})(?:Bearer|bearer|BEARER|Basic|basic|BASIC|Token|token|TOKEN)` +
+    String.raw`(?:[^\S\r\n]+${notProse}|(?:%20|\+)${notEncodedProse})${notParameter})${credentialAhead}${credential}{4}${credential}*(?!${credential}|\[(?:secret|email|card)\])`,
   "g",
 )
-
-// What base64 and hex have and short words don't: a digit, padding, or both cases.
-const credentialLike = /[0-9=]|[a-z].*[A-Z]|[A-Z].*[a-z]/
-
-// A credential is 8 characters or more, or 4 or more that look like base64.
-const replaceSchemeCredential = (match: string, name: string, space: string, value: string): string =>
-  value.length >= 8 || credentialLike.test(value) ? `${name}${space}[token]` : match
 
 // Query, fragment and `;` parameters whose values are secrets, also in a URL encoded into another.
 // A value never starts on a marker (`[secret]`), so a second scrub can't take more than the first.
@@ -142,10 +143,10 @@ const tokenPair = new RegExp(String.raw`(${pairHead("token")})${notProse}${crede
 
 // An address: 64 characters before the `@` (`%40` in a URL), 253 after it, and a top-level domain
 // that isn't an image's extension (`logo@2x.png`). It starts where a run of what it reads starts,
-// after an escape, or after a top-level domain and `_` or `-`, so glued addresses go in one scrub.
+// after an escape, or right after a top-level domain, so addresses glued together go in one scrub.
 const local = "[A-Za-z0-9._%+-]"
 const email = new RegExp(
-  String.raw`(?:(?<![A-Za-z0-9._%+\\-])${local}{1,64}|(?<=\.[A-Za-z]{2,63}[_-])${local}{1,64}|${afterEscape}[A-Za-z0-9._+-]{1,64})` +
+  String.raw`(?:(?<![A-Za-z0-9._%+\\-]|\[card\])${local}{1,64}|(?=[0-9._%+-])(?<=\.[A-Za-z]{2,63})${local}{1,64}|${afterEscape}[A-Za-z0-9._+-]{1,64})` +
     String.raw`(?:@|%40)[A-Za-z0-9.-]{1,253}\.(?!(?:png|jpe?g|gif|webp|svg)(?![A-Za-z]))[A-Za-z]{2,63}(?![A-Za-z])`,
   "g",
 )
@@ -192,7 +193,7 @@ export const scrubText = (text: string, ownKeyPrefixes?: ReadonlyArray<string>):
     .replace(urlPassword, "$1[secret]")
     .replace(authorization, "$1[token]")
     .replace(cookie, "$1[secret]")
-    .replace(schemeCredential, replaceSchemeCredential)
+    .replace(schemeCredential, "$1[token]")
     .replace(secretParameter, "$1[secret]")
     .replace(secretPair, "$1[secret]")
     .replace(tokenPair, "$1[secret]")

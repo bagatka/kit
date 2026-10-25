@@ -61,7 +61,10 @@ const recognized: ReadonlyArray<readonly [string, string]> = [
   ["cut -----BEGIN PRIV·ATE KEY-----\nMIIE", "cut [token]"],
   // Emails, also with `%40`, and glued to another.
   ["to anna.k+notes@example.co.uk, ?to=bob%40example.com", "to [email], ?to=[email]"],
-  ["ada@example.com_bob@example.com", "[email]_[email]"],
+  [
+    "ada@example.com_bob@example.com ada@example.comZ9bob@example.com%20eve@example.com",
+    "[email][email] [email][email][email]",
+  ],
   // Card numbers.
   ["4242 4242 4242 4242 and 4242-4242-4242-4242", "[card] and [card]"],
   ["5555 5555 5555 4444 pan%3A4242424242424242", "[card] pan%3A[card]"],
@@ -135,7 +138,7 @@ describe("scrubText", () => {
   })
 
   it("never throws, and a second scrub changes nothing, whatever the string", () => {
-    const fragments = [
+    const everyForm = [
       ...recognized.flatMap(([text, scrubbed]) => [fake(text), fake(scrubbed)]),
       ...kept,
       ...'password token Bearer authorization cookie = : " + @ - . _ \\ \\n %3D [secret] [token] 4242'.split(" "),
@@ -143,16 +146,41 @@ describe("scrubText", () => {
       "\r\n",
       String.fromCharCode(0xd800),
     ]
+    // What stands next to a marker a later pattern writes, and what a first scrub declines: few, so
+    // they meet often.
+    const edges = [
+      ..."%20 9 Z . - _ ://u: Bearer +token Basic acme_live_ @example.com %40example.com 4242424242424242 = [card] [email] [token]".split(
+        " ",
+      ),
+      fake("AK·IAFAKEFAKEFAKE1234"),
+      "4242 4242 4242 4242",
+      " ",
+    ]
     // A Lehmer generator (MINSTD), exact in a double: the same texts on every machine.
     let state = 12_345
     const next = (bound: number) => {
       state = (state * 48_271) % 2_147_483_647
       return state % bound
     }
-    for (let round = 0; round < 20_000; round += 1) {
-      const text = Array.from({ length: 1 + next(8) }, () => fragments[next(fragments.length)]).join("")
+    for (const fragments of [everyForm, edges]) {
+      for (let round = 0; round < 20_000; round += 1) {
+        const text = Array.from({ length: 1 + next(8) }, () => fragments[next(fragments.length)]).join("")
+        const once = scrubText(text)
+        assert.strictEqual(scrubText(once), once, JSON.stringify(text))
+      }
+    }
+    // Texts a larger corpus found, each where a marker would make an earlier pattern read
+    // differently: an address after a card's digits, a credential before them (a parameter until
+    // then), an AWS key ID before an address's letters; and a credential right after text the first
+    // scrub read and declined (`+token`), once a parameter's value took the scheme before it.
+    for (const text of [
+      String.raw`\n4242424242424242%20@example.com`,
+      "?code=Bearer +token A4242",
+      "Basic acme_live_4242424242424242=&sig=",
+      fake(".AK·IAFAKEFAKEFAKEFAKE4242eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjF9.sig4242@example.com"),
+    ]) {
       const once = scrubText(text)
-      assert.strictEqual(scrubText(once), once, JSON.stringify(text))
+      assert.strictEqual(scrubText(once), once, text)
     }
   })
 
