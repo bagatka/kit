@@ -4,7 +4,8 @@
 //
 // Guarantees, for any input: time linear in its length, because a pattern starts only where a run
 // of what it reads starts (or at something rare, such as `://` or `password`) and reads a bounded
-// amount from any other start; every repetition is bounded or one character class, and no group
+// amount from any other start, or a value is scanned to its end once (`replaceValues`); every
+// repetition is bounded or one character class, and no group
 // repeats inside a lookahead or lookbehind, since engines keep state for each such repetition and,
 // past a few million characters, V8 throws and JavaScriptCore stops matching; and scrubbing twice
 // changes nothing, since no pattern starts right after, or ends right before, a marker (`[token]`)
@@ -69,11 +70,53 @@ const ownKeys = (prefixes: ReadonlyArray<string> | undefined): ReadonlyArray<Reg
   return [pattern]
 }
 
-// The password in `scheme://user:password@host`, up to the first `@` after it; never a port
-// (`localhost:3000/users/@me`), nor the `:` of another `://`. Neither part holds `[` or `]`, which a
-// URL's user and password can't (RFC 3986), so a marker never becomes one.
-const urlPassword =
-  /(?<=[A-Za-z0-9])(:\/\/[^\s:/?#@"'[\]]*:(?!\/\/))(?![0-9]{1,5}(?:[/?#\s"']|$))[^\s?#@"'\\[\]]{1,128}(?=@)/g
+// `text` with each value that follows a match of `starts` replaced by `marker`, where `valueEnd`
+// says where the value ends (at `from`, when there's none). The search goes on from a value's end,
+// so each value is read once, and a regular expression never repeats a group to find its end.
+const replaceValues = (
+  text: string,
+  starts: RegExp,
+  valueEnd: (text: string, from: number) => number,
+  marker: string,
+): string => {
+  let scrubbed = ""
+  let kept = 0
+  starts.lastIndex = 0
+  for (let found = starts.exec(text); found !== null; found = starts.exec(text)) {
+    const from = found.index + found[0].length
+    const end = valueEnd(text, from)
+    if (end > from) {
+      scrubbed += text.slice(kept, from) + marker
+      kept = end
+      starts.lastIndex = end
+    } else {
+      starts.lastIndex = found.index + 1
+    }
+  }
+  return scrubbed + text.slice(kept)
+}
+
+// Where a URL's password starts, in `scheme://user:password@host`: never a port
+// (`localhost:3000/users/@me`), nor the `:` of another `://`. It goes to the first `@` after it,
+// however long. Neither part holds `[` or `]`, which a URL's user and password can't (RFC 3986), so
+// a marker never becomes one.
+const urlPasswordStart = /(?<=[A-Za-z0-9]):\/\/[^\s:/?#@"'[\]]*:(?!\/\/)(?![0-9]{1,5}(?:[/?#\s"']|$))/g
+const notInPassword = /[\s?#@"'\\[\]]/g
+
+// Where each URL password ends: at the first character a password can't hold, if it is the `@`.
+// Found once for all the starts before it, since `://` can repeat inside a run that ends nowhere.
+const urlPasswordEnds = () => {
+  let searchedFrom = Number.POSITIVE_INFINITY
+  let stop = 0
+  return (text: string, from: number): number => {
+    if (from < searchedFrom || from > stop) {
+      notInPassword.lastIndex = from
+      stop = notInPassword.exec(text)?.index ?? text.length
+      searchedFrom = from
+    }
+    return text[stop] === "@" ? stop : from
+  }
+}
 
 // A scheme: a word (`Bearer`, `ApiKey`) or words joined by dashes (`AWS4-HMAC-SHA256`). A key, with
 // digits and no dash, isn't one.
@@ -130,13 +173,39 @@ const secretName = new RegExp(String.raw`(?:^|[._-])(?:${valueNames}|token|autho
 // `"password": "`, and the same inside a JSON string (`\"password\":\"`).
 const pairHead = (names: string) => String.raw`(?:${names})(?:\\?["'])?[ \t]*(?:=(?!>)|:(?!=))[ \t]*(?:\\?["'])?`
 
-// A named secret's value: in quotes, to the closing quote; bare, to the next space or separator,
-// unless it is only a literal (`null`) or a structure (`{`, `[`).
-const secretPair = new RegExp(
-  String.raw`(${pairHead(valueNames)})(?:(?<=\\")[^"\\\r\n]+|(?<=(?<!\\)")(?=[^"\r\n])[^"\\\r\n]*(?:\\[^\r\n][^"\\\r\n]*){0,256}|` +
-    String.raw`(?<=')[^'\r\n]+|(?<![\\"'])(?!(?:null|true|false|undefined|None|nil)(?:[\s,;&})\]]|$))[^\s"'\\,;&{[=][^\s"'\\,;&]*)`,
-  "gi",
-)
+// Where a named secret's value ends, by what stands before it: inside an escaped string
+// (`\"password\":\"`), at its escape; in double quotes, at the closing quote, past any number of
+// escapes; in single quotes, at the closing quote; bare, at the next space or separator, unless it
+// is only a literal (`null`) or a structure (`{`, `[`).
+const secretPairStart = new RegExp(pairHead(valueNames), "gi")
+const inEscapedString = /[^"\\\r\n]+/y
+const inSingleQuotes = /[^'\r\n]+/y
+const bare = /(?!(?:null|true|false|undefined|None|nil)(?:[\s,;&})\]]|$))[^\s"'\\,;&{[=][^\s"'\\,;&]*/y
+const endOf = (value: RegExp, text: string, from: number): number => {
+  value.lastIndex = from
+  return value.test(text) ? value.lastIndex : from
+}
+const secretPairEnd = (text: string, from: number): number => {
+  const before = text[from - 1]
+  if (before === '"') {
+    return text[from - 2] === "\\" ? endOf(inEscapedString, text, from) : inDoubleQuotesEnd(text, from)
+  }
+  return endOf(before === "'" ? inSingleQuotes : bare, text, from)
+}
+
+// Where a value in double quotes ends: at its closing quote or a line break, its escapes (`\"`)
+// read past, however many.
+const inDoubleQuotesEnd = (text: string, from: number): number => {
+  let at = from
+  while (at < text.length && text[at] !== '"' && text[at] !== "\r" && text[at] !== "\n") {
+    const escaped = text[at] === "\\"
+    if (escaped && (at + 1 === text.length || text[at + 1] === "\r" || text[at + 1] === "\n")) {
+      break
+    }
+    at += escaped ? 2 : 1
+  }
+  return at
+}
 
 // A token's value: 8 characters or more, not a word (`token: expired`).
 const tokenPair = new RegExp(String.raw`(${pairHead("token")})${notProse}${credential}{8}${credential}*`, "gi")
@@ -188,15 +257,19 @@ export const scrubText = (text: string, ownKeyPrefixes?: ReadonlyArray<string>):
   if (typeof given !== "string") {
     return ""
   }
-  const withoutSecrets = [privateKey, keys, ...ownKeys(ownKeyPrefixes)]
-    .reduce((scrubbed, pattern) => scrubbed.replace(pattern, "[token]"), given)
-    .replace(urlPassword, "$1[secret]")
+  const withKeys = [privateKey, keys, ...ownKeys(ownKeyPrefixes)].reduce(
+    (scrubbed, pattern) => scrubbed.replace(pattern, "[token]"),
+    given,
+  )
+  const withoutHeaders = replaceValues(withKeys, urlPasswordStart, urlPasswordEnds(), "[secret]")
     .replace(authorization, "$1[token]")
     .replace(cookie, "$1[secret]")
     .replace(schemeCredential, "$1[token]")
     .replace(secretParameter, "$1[secret]")
-    .replace(secretPair, "$1[secret]")
-    .replace(tokenPair, "$1[secret]")
+  const withoutSecrets = replaceValues(withoutHeaders, secretPairStart, secretPairEnd, "[secret]").replace(
+    tokenPair,
+    "$1[secret]",
+  )
   // The search for emails tries every word, so it runs only on text with an `@` (or `%40`).
   const withoutEmails = /@|%40/.test(withoutSecrets) ? withoutSecrets.replace(email, "[email]") : withoutSecrets
   return withoutEmails.replace(card, replaceCard)

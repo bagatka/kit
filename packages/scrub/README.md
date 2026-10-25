@@ -58,14 +58,15 @@ written another way passes through.
   `id_token`, `code`, `password`, `secret`, `client_secret`, `api_key`, `key`, `sig`, `signature`,
   `session`, `X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-Security-Token`, also in a URL encoded
   into another (`%3Ftoken%3D`).
-- **The password in `scheme://user:password@host`,** up to the first `@` after it; never a port
-  (`localhost:3000/users/@me`).
+- **The password in `scheme://user:password@host`,** up to the first `@` after it, however long;
+  never a port (`localhost:3000/users/@me`).
 - **Values of named secrets:** `name=value`, `name: value` and JSON's `"name": "value"` (also inside
   a JSON string, `\"name\":\"value\"`), where the name ends with a word `isSecretName` knows:
   `password`, `passwd`, `pwd`, `passphrase`, `secret`, `credentials`, `jwt`, `signature`,
   `session_id`, `connection_string`, `cookie`, an API, access, secret, private, signing, encryption
-  or master key, and `token` (whose value must be 8 characters or more and not a word). The name
-  and quotes stay; `null`, `true`, `false` and structures (`{`, `[`) stay.
+  or master key, and `token` (whose value must be 8 characters or more and not a word). A quoted
+  value goes to its closing quote, past any number of escapes. The name and quotes stay; `null`,
+  `true`, `false` and structures (`{`, `[`) stay.
 - **`Cookie:` and `Set-Cookie:` header values,** to the end of the line.
 - **PEM private keys,** through their END line, or to the end of their base64 when cut short.
 - **Emails** with an ASCII local part and domain, also with `%40` for the `@`, and glued to another; a

@@ -47,10 +47,14 @@ const recognized: ReadonlyArray<readonly [string, string]> = [
   // URL passwords.
   ["postgres://app:Xy7/Kq+9zW2@db:5432/notes", "postgres://app:[secret]@db:5432/notes"],
   ["(redis://:1pw@cache)", "(redis://:[secret]@cache)"],
+  // However long, as an IAM token is.
+  [`postgres://app:${"Tk9".repeat(300)}@db:5432/notes`, "postgres://app:[secret]@db:5432/notes"],
   // Values of named secrets.
   ["user=bob password=hunter2 DB_SECRET: abc,", "user=bob password=[secret] DB_SECRET: [secret],"],
   [String.raw`{"api_key": "ab\"c", "clientSecret":'x'}`, `{"api_key": "[secret]", "clientSecret":'[secret]'}`],
   [String.raw`{\"password\":\"hunter2\"}`, String.raw`{\"password\":\"[secret]\"}`],
+  // To the closing quote, past any number of escapes.
+  [`{"password":"${String.raw`\t`.repeat(300)}end"}`, '{"password":"[secret]"}'],
   ["token: abc123def456", "token: [secret]"],
   // Cookie headers, to the end of the line.
   ['Cookie: theme="dark"; session=abc\nnext', "Cookie: [secret]\nnext"],
@@ -208,6 +212,7 @@ describe("scrubText", () => {
       [fill("authorization:" + " ".repeat(1_000)), []],
       [fill("?token=%3F"), []],
       [fill('"password":"'), []],
+      [fill(String.raw`"password":"\t`), []],
       [fill("a%40"), []],
       [fill("a".repeat(64) + "@" + "a.".repeat(126) + "1 "), []],
       [fill("4242 "), []],
