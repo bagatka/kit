@@ -193,6 +193,7 @@ const isEffectNumber = (members: ReadonlyArray<unknown>): boolean =>
     (member) =>
       isRecord(member) &&
       member["type"] === "string" &&
+      shapeKeywords(member).length === 2 &&
       isStrings(member["enum"]) &&
       member["enum"].length === nonFinite.length &&
       nonFinite.every((value) => isStrings(member["enum"]) && member["enum"].includes(value)),
@@ -211,7 +212,11 @@ const membersKeyOf = (schema: JsonRecord): "anyOf" | "oneOf" => (Array.isArray(s
 
 // The one value of a single-valued string enum, the way a constant property is written.
 const constantOf = (schema: unknown): string | undefined =>
-  isRecord(schema) && schema["type"] === "string" && isStrings(schema["enum"]) && schema["enum"].length === 1
+  isRecord(schema) &&
+  schema["type"] === "string" &&
+  shapeKeywords(schema).length === 2 &&
+  isStrings(schema["enum"]) &&
+  schema["enum"].length === 1
     ? schema["enum"][0]
     : undefined
 
@@ -317,6 +322,9 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
   // Named schemas that stand for a value type, while one is being read, so one that refers to
   // itself is a problem rather than a loop.
   const resolving = new Set<string>()
+  // Each named value type once read, a problem included, so a document that refers to one many
+  // times is read in time linear in its size.
+  const resolved = new Map<string, ValueType | undefined>()
 
   const valueType = (schema: unknown, path: string): ValueType | undefined => {
     if (!isRecord(schema)) {
@@ -340,13 +348,20 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
       if (resolving.has(name)) {
         return problem(path, `${name} stands for a value that holds itself`)
       }
-      resolving.add(name)
-      const resolved = valueType(target, at(schemasPath, referenced))
-      resolving.delete(name)
-      return resolved
+      if (!resolved.has(referenced)) {
+        resolving.add(name)
+        resolved.set(referenced, valueType(target, at(schemasPath, referenced)))
+        resolving.delete(name)
+      }
+      return resolved.get(referenced)
     }
     const anyOf = membersOf(schema)
     if (anyOf !== undefined) {
+      // A union says its shape with its members alone, nothing beside them.
+      const beside = shape.filter((key) => key !== membersKeyOf(schema))
+      if (beside.length > 0) {
+        return problem(path, `the keywords ${beside.join(", ")}, which no Swift type here holds`)
+      }
       if (isEffectNumber(anyOf)) {
         return { _tag: "Double" }
       }

@@ -662,6 +662,29 @@ describe("swiftClient", () => {
           holding({ type: "string", allOf: [{ format: "date" }, { type: "integer" }] }),
           [`${x}: the keywords allOf, which no Swift type here holds`],
         ],
+        // A named value type is read once, however many refer to it, so a document is read in linear time.
+        [
+          {
+            Holder: objectOf({ a: ref("Half"), b: ref("Half"), c: ref("Half") }),
+            Half: { type: "integer", enum: [1.5] },
+          },
+          ["#/components/schemas/Half: an enum of other values than integers"],
+        ],
+        // Nor beside a nullable value, Effect's number, or a constant, which are read before the rest.
+        [
+          holding({ anyOf: [{ type: "boolean", enum: [true] }, nothing], allOf: [{ type: "boolean" }] }),
+          [`${x}: the keywords allOf, which no Swift type here holds`],
+        ],
+        [holding({ anyOf: [number, { ...nonFinite, allOf: [{ type: "integer" }] }] }), [`${x}: ${union}`]],
+        [
+          {
+            Tagged: {
+              ...tagged("Tagged"),
+              properties: { _tag: { ...constant("Tagged"), allOf: [{ type: "integer" }] } },
+            },
+          },
+          ["#/components/schemas/Tagged/properties/_tag: the keywords allOf, which no Swift type here holds"],
+        ],
         [
           { Merged: { ...inline, allOf: [{}], not: {} } },
           ["#/components/schemas/Merged: the keywords allOf, not, which no Swift type here holds"],
