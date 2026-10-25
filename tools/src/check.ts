@@ -1,4 +1,4 @@
-import { checkWorkspace } from "@bagatka/workspace-rules"
+import { checkWorkspace } from "@bagatka/bun-workspace-rules"
 import { Console, Effect, FileSystem, Schema } from "effect"
 import { Command } from "effect/cli"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"

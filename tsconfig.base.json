@@ -63,7 +63,7 @@
           "@effect/ai-cloudflare",
           // Effect's API definitions, whose OpenAPI documents @bagatka/openapi-swift's tests read.
           "effect/http-api",
-          // Reading a workspace, in @bagatka/workspace-rules.
+          // Reading a workspace, in @bagatka/bun-workspace-rules.
           "effect/FileSystem",
           "effect/Path",
           "@effect/vitest"

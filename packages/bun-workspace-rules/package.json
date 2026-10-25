@@ -1,5 +1,5 @@
 {
-  "name": "@bagatka/workspace-rules",
+  "name": "@bagatka/bun-workspace-rules",
   "version": "0.1.0",
   "private": true,
   "description": "Checks that a Bun workspace's packages follow your rules: what each is named, whether others may import it, and which packages it may depend on, at which versions.",

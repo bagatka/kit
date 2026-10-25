@@ -639,7 +639,7 @@ conflict.
   the newest Bun. An update is its own change that reads the changelogs, adopts what replaces our
   own code, and runs every check.
 - **Status:** twelve packages, none published yet: `jwt`, `webauthn`, `scrub`, and
-  `workspace-rules`, reviewed in `docs/reviews/2026-10-23-first-review.md`; `qr-code`,
+  `bun-workspace-rules`, reviewed in `docs/reviews/2026-10-23-first-review.md`; `qr-code`,
   `quantile-sketch`, `otlp-protobuf`, `apns`, `ai-cloudflare-binding`, `openapi-swift`, `app-store-connect`, and
   `github-app`, reviewed in `docs/reviews/2026-10-24-second-review.md`.
 - **The repository is public.** No names of the founder's private products, real domains, Apple

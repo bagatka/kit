@@ -49,6 +49,17 @@
         "vitest": "catalog:",
       },
     },
+    "packages/bun-workspace-rules": {
+      "name": "@bagatka/bun-workspace-rules",
+      "version": "0.1.0",
+      "dependencies": {
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/github-app": {
       "name": "@bagatka/github-app",
       "version": "0.1.0",
@@ -137,21 +148,10 @@
         "vitest": "catalog:",
       },
     },
-    "packages/workspace-rules": {
-      "name": "@bagatka/workspace-rules",
-      "version": "0.1.0",
-      "dependencies": {
-        "effect": "catalog:",
-      },
-      "devDependencies": {
-        "@effect/vitest": "catalog:",
-        "vitest": "catalog:",
-      },
-    },
     "tools": {
       "name": "kit-tools",
       "dependencies": {
-        "@bagatka/workspace-rules": "workspace:*",
+        "@bagatka/bun-workspace-rules": "workspace:*",
         "@effect/platform-bun": "catalog:",
         "effect": "catalog:",
       },
@@ -183,6 +183,8 @@
 
     "@bagatka/app-store-connect": ["@bagatka/app-store-connect@workspace:packages/app-store-connect"],
 
+    "@bagatka/bun-workspace-rules": ["@bagatka/bun-workspace-rules@workspace:packages/bun-workspace-rules"],
+
     "@bagatka/github-app": ["@bagatka/github-app@workspace:packages/github-app"],
 
     "@bagatka/jwt": ["@bagatka/jwt@workspace:packages/jwt"],
@@ -198,8 +200,6 @@
     "@bagatka/scrub": ["@bagatka/scrub@workspace:packages/scrub"],
 
     "@bagatka/webauthn": ["@bagatka/webauthn@workspace:packages/webauthn"],
-
-    "@bagatka/workspace-rules": ["@bagatka/workspace-rules@workspace:packages/workspace-rules"],
 
     "@cloudflare/workers-types": ["@cloudflare/workers-types@5.20261024.1", "", {}, "sha512-sNhbgBsuVvmumSurgCcIrXShqACPfRt/XlYFstBeANu5BHEJhXW+e7PmHxDNYRXxKYZV57toUfkLwFp8/0SZKA=="],
 

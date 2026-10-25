@@ -20,7 +20,7 @@ own.
 | `packages/quantile-sketch` | Quantiles of any number of values from small sketches that merge | `packages/quantile-sketch/src/index.ts` |
 | `packages/scrub` | Removes credentials and personal data from text before it is stored | `packages/scrub/src/index.ts` |
 | `packages/ai-cloudflare-binding` | Effect AI from a Cloudflare Worker through its AI binding: `LanguageModel` on Workers AI, and Clef's decisions for `@effect/ai-cloudflare` | `packages/ai-cloudflare-binding/src/index.ts` |
-| `packages/workspace-rules` | Checks a workspace's packages against rules for names, contracts and dependencies | `packages/workspace-rules/src/index.ts` |
+| `packages/bun-workspace-rules` | Checks a Bun workspace's packages against rules for names, contracts and dependencies | `packages/bun-workspace-rules/src/index.ts` |
 | `tools` | The repository's program: `bun run check`, `bun run check:swift`, `bun run test` and `bun run build` | none: it is a host |
 
 ## Dependency rules

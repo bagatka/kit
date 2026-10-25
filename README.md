@@ -45,7 +45,7 @@ In a build script on Bun, Node or Deno.
 | Package | What it does |
 |---|---|
 | [`@bagatka/openapi-swift`](packages/openapi-swift) | Writes a typed Swift client of an HTTP API from its OpenAPI 3.1 document, such as Effect's `HttpApi` writes |
-| [`@bagatka/workspace-rules`](packages/workspace-rules) | Checks a Bun workspace's packages against rules for names, contracts, and dependencies |
+| [`@bagatka/bun-workspace-rules`](packages/bun-workspace-rules) | Checks a Bun workspace's packages against rules for names, contracts, and dependencies |
 
 None is on npm yet: each one's contract is being reviewed before its first version.
 

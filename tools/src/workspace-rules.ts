@@ -1,4 +1,4 @@
-import type { PackageRule } from "@bagatka/workspace-rules"
+import type { PackageRule } from "@bagatka/bun-workspace-rules"
 
 // Effect's Crypto on Web Crypto, which tests provide as Workers and browsers do.
 const forTests = ["@effect/platform-browser", "@effect/vitest", "vitest"]

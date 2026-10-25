@@ -1,4 +1,4 @@
-# @bagatka/workspace-rules
+# @bagatka/bun-workspace-rules
 
 Checks that a Bun workspace's packages follow your rules: what each is named, whether others may
 import it, and which packages it may depend on, at which versions.
@@ -6,7 +6,7 @@ import it, and which packages it may depend on, at which versions.
 ## Install
 
 ```sh
-npm install --save-dev @bagatka/workspace-rules effect
+npm install --save-dev @bagatka/bun-workspace-rules effect
 ```
 
 Its peer dependency is `effect`, at the minor version it is built with. It reads files through
@@ -15,8 +15,8 @@ Effect's `FileSystem`, so a program runs it on Bun or Node with Effect's platfor
 ## Use it
 
 ```ts
-import { checkWorkspace } from "@bagatka/workspace-rules"
-import type { PackageRule } from "@bagatka/workspace-rules"
+import { checkWorkspace } from "@bagatka/bun-workspace-rules"
+import type { PackageRule } from "@bagatka/bun-workspace-rules"
 import { Console, Effect } from "effect"
 
 const rules: ReadonlyArray<PackageRule> = [

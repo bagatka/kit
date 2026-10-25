@@ -6,7 +6,7 @@
     "typecheck": "tsc"
   },
   "dependencies": {
-    "@bagatka/workspace-rules": "workspace:*",
+    "@bagatka/bun-workspace-rules": "workspace:*",
     "@effect/platform-bun": "catalog:",
     "effect": "catalog:"
   },

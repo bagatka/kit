@@ -249,7 +249,7 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
 - **The contract's wording:** it takes the document as parsed JSON, such as `OpenApi.fromApi`
   gives, not JSON text.
 
-## `@bagatka/workspace-rules`
+## `@bagatka/bun-workspace-rules`, was `@bagatka/workspace-rules`
 
 - **Contract confirmed.** `checkWorkspace(root, rules)` returns every violation as plain data, and
   fails with `WorkspaceUnreadable` only when the workspace can't be read as a whole.
@@ -264,3 +264,7 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
 - **The README's example is a CI step.** It used a top-level `yield*` and `Console` without
   importing it; now it prints every violation and fails when there is any. Run from the tarball on a
   made-up Bun workspace, it prints the line its comment shows and exits 1.
+- **Renamed `@bagatka/bun-workspace-rules`, decided with the founder.** It reads only Bun's
+  workspaces and is a development tool, so the name says so, and no npm, Yarn or pnpm user installs
+  it to have their repository refused. This repository's own rules stay in
+  `tools/src/workspace-rules.ts`.
