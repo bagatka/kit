@@ -1,7 +1,7 @@
 # @bagatka/workspace-rules
 
-Checks that a JavaScript workspace's packages follow your rules: what each is named, whether others
-may import it, and which packages it may depend on, at which versions.
+Checks that a Bun workspace's packages follow your rules: what each is named, whether others may
+import it, and which packages it may depend on, at which versions.
 
 ## Install
 
@@ -17,6 +17,7 @@ Effect's `FileSystem`, so a program runs it on Bun or Node with Effect's platfor
 ```ts
 import { checkWorkspace } from "@bagatka/workspace-rules"
 import type { PackageRule } from "@bagatka/workspace-rules"
+import { Console, Effect } from "effect"
 
 const rules: ReadonlyArray<PackageRule> = [
   {
@@ -37,12 +38,19 @@ const rules: ReadonlyArray<PackageRule> = [
   },
 ]
 
-// Needs FileSystem and Path: BunServices.layer or NodeServices.layer provides both.
-const violations = yield* checkWorkspace(".", rules)
-for (const violation of violations) {
-  yield* Console.error(`${violation.folder}: ${violation.message}`)
-}
-// packages/money: May not depend on "@acme/shop" ("apps/shop"): mayUse for packages/* doesn't match that folder.
+// Every violation, then a failing exit when there is any, as a CI step wants.
+const check = Effect.gen(function* () {
+  const violations = yield* checkWorkspace(".", rules)
+  for (const violation of violations) {
+    yield* Console.error(`${violation.folder}: ${violation.message}`)
+    // packages/money: May not depend on "@acme/shop" ("apps/shop"): mayUse for packages/* doesn't match that folder.
+  }
+  if (violations.length > 0) {
+    return yield* Effect.fail("The workspace breaks its rules, as listed above")
+  }
+})
+// check: Effect<void, string | WorkspaceUnreadable, FileSystem | Path>. Run it with your runtime's
+// FileSystem and Path, such as NodeServices.layer from @effect/platform-node or BunServices.layer.
 ```
 
 When the workspace can't be checked as a whole, such as a `package.json` that is missing or isn't
@@ -74,6 +82,10 @@ against a hostile pull request, which a person reviews.
 - **Each `package.json`,** the root's and each package's, is a regular file, not a link, of at most
   1 MiB by its size on disk, valid JSON with no key twice in one object; otherwise the check fails
   with `WorkspaceUnreadable`. **`src/index.ts`** is a regular file, not a link or a folder.
+- **Bun's workspace format:** the root `package.json`'s `workspaces`, a list of patterns or an
+  object with `packages` and a `catalog`; a workspace package depended on as `workspace:*`, and an
+  npm package as `catalog:`. npm's and Yarn's workspaces, which have no catalog in `package.json`,
+  and pnpm's, kept in `pnpm-workspace.yaml`, aren't supported.
 - **Dependencies** are in `dependencies`, `devDependencies`, `optionalDependencies`, and
   `peerDependencies`; a workspace package is `workspace:*`, an npm package `catalog:`, with one
   exact version in the root's `workspaces.catalog`.

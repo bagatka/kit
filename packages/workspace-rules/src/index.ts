@@ -1,5 +1,5 @@
 /**
- * Checks a JavaScript workspace against rules: what each package is named, whether other packages
+ * Checks a Bun workspace against rules: what each package is named, whether other packages
  * may import it, and which packages it may depend on, at which versions.
  */
 export { checkWorkspace } from "./check-workspace.ts"

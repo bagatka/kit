@@ -60,15 +60,13 @@ const isLinkReason = "it is a link, and links aren't supported"
 const unsupportedIn = (folder: string, message: string) => new Violation({ folder, check: "unsupported", message })
 
 /** Reads the root `package.json`, the folders its workspace patterns name, and each package's `package.json`. */
-export const readWorkspace = Effect.fn("readWorkspace")(function* (root: string) {
+export const readWorkspace = Effect.fnUntraced(function* (root: string) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
 
   // `readLink` succeeds only on a link, so a link is found without following it; anything else
   // that `readLink` refuses is whatever `stat` says.
-  const entryAt = Effect.fn("readWorkspace.entryAt")(function* (
-    relative: string,
-  ): Effect.fn.Return<Entry, WorkspaceUnreadable> {
+  const entryAt = Effect.fnUntraced(function* (relative: string): Effect.fn.Return<Entry, WorkspaceUnreadable> {
     const absolute = path.join(root, relative)
     const isLink = yield* fs.readLink(absolute).pipe(
       Effect.as(true),
@@ -88,7 +86,7 @@ export const readWorkspace = Effect.fn("readWorkspace")(function* (root: string)
     })
   })
 
-  const readManifest = Effect.fn("readWorkspace.readManifest")(function* (file: string) {
+  const readManifest = Effect.fnUntraced(function* (file: string) {
     const entry = yield* entryAt(file)
     if (entry.kind === "missing") {
       return yield* new WorkspaceUnreadable({ path: file, reason: "it is missing" })
@@ -118,14 +116,12 @@ export const readWorkspace = Effect.fn("readWorkspace")(function* (root: string)
     return manifest
   })
 
-  const holdsManifest = Effect.fn("readWorkspace.holdsManifest")(function* (folder: string) {
+  const holdsManifest = Effect.fnUntraced(function* (folder: string) {
     const manifest = yield* entryAt(`${folder}/package.json`)
     return manifest.kind !== "missing"
   })
 
-  const expand = Effect.fn("readWorkspace.expand")(function* (
-    pattern: string,
-  ): Effect.fn.Return<Expanded, WorkspaceUnreadable> {
+  const expand = Effect.fnUntraced(function* (pattern: string): Effect.fn.Return<Expanded, WorkspaceUnreadable> {
     const parsed = parseFolderPattern(pattern)
     if (parsed._tag === "None") {
       return yield* new WorkspaceUnreadable({
@@ -192,7 +188,7 @@ export const readWorkspace = Effect.fn("readWorkspace")(function* (root: string)
     return { members, unsupported }
   })
 
-  const readMember = Effect.fn("readWorkspace.readMember")(function* (folder: string) {
+  const readMember = Effect.fnUntraced(function* (folder: string) {
     const manifest = yield* readManifest(`${folder}/package.json`)
     const entry = yield* entryAt(`${folder}/src/index.ts`)
     return { folder, manifest, hasEntry: entry.kind === "File" } satisfies Member

@@ -11,7 +11,7 @@ const decodeKey = Schema.decodeEffect(Schema.fromJsonString(Schema.String))
  * `json` must already have parsed as JSON. Reads each character once, keeping one set of keys for
  * each object that is open at that point, so time and memory are linear in `json`'s length.
  */
-export const findRepeatedKey = Effect.fn("findRepeatedKey")(function* (json: string) {
+export const findRepeatedKey = Effect.fnUntraced(function* (json: string) {
   // For each object or array open at `index`: the keys an object has had so far, `undefined` for an
   // array. Strings are skipped whole, so a brace or a quote inside one is never read as structure.
   const open: Array<Set<string> | undefined> = []

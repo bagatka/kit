@@ -248,3 +248,19 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
   `-swift-version 6 -warnings-as-errors`, as a library and with the main actor as the default.
 - **The contract's wording:** it takes the document as parsed JSON, such as `OpenApi.fromApi`
   gives, not JSON text.
+
+## `@bagatka/workspace-rules`
+
+- **Contract confirmed.** `checkWorkspace(root, rules)` returns every violation as plain data, and
+  fails with `WorkspaceUnreadable` only when the workspace can't be read as a whole.
+- **One span, `checkWorkspace`.** Every file and folder it read was a span of its own
+  (`readWorkspace.readManifest` and five more); those are steps, `Effect.fnUntraced` now
+  (PATTERNS.md, "Calling a service, and what it shows"). Run from the installed tarball on this
+  repository with a tracer: one span.
+- **It says it is for Bun.** It reads Bun's format, `workspaces.catalog` in `package.json` with
+  `workspace:*` and `catalog:`, which npm, Yarn and pnpm don't write; it called itself a checker of
+  any "JavaScript workspace". The description, the contract's comment and the README say Bun now,
+  and the supported shape names the others as unsupported.
+- **The README's example is a CI step.** It used a top-level `yield*` and `Console` without
+  importing it; now it prints every violation and fails when there is any. Run from the tarball on a
+  made-up Bun workspace, it prints the line its comment shows and exits 1.
