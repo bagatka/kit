@@ -19,12 +19,14 @@ Fixes, which 0.1.0 had too:
   is listed once; types that hold themselves are found in one pass; and names, cases, parameters
   and errors are looked up rather than searched;
 - a schema nested more than 100 deep, through references too, is refused, rather than exhausting
-  the stack;
+  the stack, a schema read before and referred to again included;
+- an error union given many times, and any number of problems, are read without a list per
+  reference or an argument per item: no time quadratic in the document, and no stack exhausted;
 - keywords beside a union's members are refused for an error's union too, and `anyOf` and `oneOf`
   together, which said two things where one was read; and a null member with more than its type,
   whose keywords were dropped;
-- schemas named `Self`, `KeyedDecodingContainer` or `RawValue`, which wrote Swift that doesn't
-  compile, are refused.
+- schemas named `Self`, `KeyedDecodingContainer` or `RawValue`, and a property, constant or enum
+  value named `RawValue`, which wrote Swift that doesn't compile, are refused.
 
 ## 0.1.0
 

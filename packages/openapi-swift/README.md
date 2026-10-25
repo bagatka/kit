@@ -105,15 +105,14 @@ func title(ofNote id: String, at url: URL, token: String) async -> String {
   to become a Swift type; an `allOf` with any other keyword in it, such as `type` or `$ref`; an
   `enum` of other values than its type's; any keyword beside a union's members, such as an `allOf`
   with a `type`, `anyOf` and `oneOf` together, and a null member with more than its type; `not`,
-  `const`, tuples (`prefixItems`) and any keyword it doesn't
-  know; header and cookie parameters, arrays in a query; `default` and ranged responses such as `2XX`;
-  a body that isn't JSON or isn't required; an error without a JSON body; a type that holds itself
-  other than in an array or a dictionary, which a Swift struct can't; names Swift can't hold, or that
-  Swift, Foundation, or the client itself takes, such as `Task`, `URLRequest`, `Self`,
-  `KeyedDecodingContainer`, or a property `hashValue`; a schema nested more than 100 deep, references
-  included; and a path that isn't `/` and segments of letters, digits, `-`, `.`, `_`, `~` and
-  `{parameters}`, or holds a segment `.` or `..`, which could send a request, and its bearer token,
-  to another address.
+  `const`, tuples (`prefixItems`) and any keyword it doesn't know; header and cookie parameters,
+  arrays in a query; `default` and ranged responses such as `2XX`; a body that isn't JSON or isn't
+  required; an error without a JSON body; a type that holds itself other than in an array or a
+  dictionary, which a Swift struct can't; names Swift can't hold, or that Swift, Foundation, or the
+  client itself takes, such as `Task`, `URLRequest`, `Self`, `KeyedDecodingContainer`, or a property
+  `hashValue` or `RawValue`; a schema nested more than 100 deep, references included; and a path
+  that isn't `/` and segments of letters, digits, `-`, `.`, `_`, `~` and `{parameters}`, or holds a
+  segment `.` or `..`, which could send a request, and its bearer token, to another address.
 - **Limits.** Time and memory linear in the document and the Swift it writes, whatever the document
   holds; a schema nests at most 100 deep, through references too, so no document exhausts the
   stack. The Swift can be longer than the document in one way: each method's doc comment lists its

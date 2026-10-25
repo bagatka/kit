@@ -148,6 +148,9 @@ const nameProblems = (api: Api): ReadonlyArray<Problem> => {
           const path = at(at(schema(declaration.name), "properties"), key)
           if (swiftName(key) === undefined || key === "self" || key === "Self") {
             problems.push({ path, reason: "a property's key no Swift name can hold" })
+          } else if (key === "RawValue") {
+            // A case of the coding keys, whose raw values are strings: RawValue is their type's.
+            problems.push({ path, reason: "a property's key Swift's coding keys take for their raw values' type" })
           } else if (key === ownKeys) {
             problems.push({ path, reason: `a property's key the client takes for its own, ${ownKeys}` })
           } else if (isStored && key === "hashValue") {
@@ -158,7 +161,7 @@ const nameProblems = (api: Api): ReadonlyArray<Problem> => {
       case "Enum": {
         const seen = new Set<string>()
         for (const value of declaration.values) {
-          if (swiftName(value) === undefined || value === "rawValue") {
+          if (swiftName(value) === undefined || value === "rawValue" || value === "RawValue") {
             problems.push({ path: schema(declaration.name), reason: `its value ${value} can't be a Swift name` })
           } else if (seen.has(value)) {
             problems.push({ path: schema(declaration.name), reason: `its value ${value} is given twice` })
@@ -168,25 +171,25 @@ const nameProblems = (api: Api): ReadonlyArray<Problem> => {
         break
       }
       case "Union":
-        problems.push(
-          ...caseProblems(
-            schema(declaration.name),
-            declaration.cases.map((entry) => entry.value),
-            ["unknown"],
-            "the union",
-          ),
-        )
+        for (const found of caseProblems(
+          schema(declaration.name),
+          declaration.cases.map((entry) => entry.value),
+          ["unknown"],
+          "the union",
+        )) {
+          problems.push(found)
+        }
         break
     }
   }
-  problems.push(
-    ...caseProblems(
-      "#/components/schemas",
-      api.errors.map((error) => error.value),
-      ["unreachable", "unreadable", "unwritable"],
-      "APIError",
-    ),
-  )
+  for (const found of caseProblems(
+    "#/components/schemas",
+    api.errors.map((error) => error.value),
+    ["unreachable", "unreadable", "unwritable"],
+    "APIError",
+  )) {
+    problems.push(found)
+  }
   for (const operation of api.operations) {
     const seen = new Set<string>()
     for (const { name: parameter } of [...operation.pathParameters, ...operation.queryParameters]) {

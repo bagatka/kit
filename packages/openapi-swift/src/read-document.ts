@@ -343,16 +343,20 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
   // itself is a problem rather than a loop.
   const resolving = new Set<string>()
   // Each named value type once read, a problem included, so a document that refers to one many
-  // times is read in time linear in its size.
-  const resolved = new Map<string, ValueType | undefined>()
+  // times is read in time linear in its size; and how deep it reaches below its reference, so a
+  // reference read again is held to the same depth bound as one read the first time.
+  const resolved = new Map<string, { readonly type: ValueType | undefined; readonly reach: number }>()
 
-  // How deep the schema being read is, through references too.
+  const tooDeep = `a schema nested more than ${maxDepth} deep, through references too`
+  // How deep the schema being read is, through references too, and the deepest reached so far.
   let depth = 0
+  let deepest = 0
   const valueType = (schema: unknown, path: string): ValueType | undefined => {
     if (depth >= maxDepth) {
-      return problem(path, `a schema nested more than ${maxDepth} deep, through references too`)
+      return problem(path, tooDeep)
     }
     depth += 1
+    deepest = Math.max(deepest, depth)
     const type = readValueType(schema, path)
     depth -= 1
     return type
@@ -379,12 +383,22 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
       if (resolving.has(name)) {
         return problem(path, `${name} stands for a value that holds itself`)
       }
-      if (!resolved.has(referenced)) {
-        resolving.add(name)
-        resolved.set(referenced, valueType(schemas[referenced], at(schemasPath, referenced)))
-        resolving.delete(name)
+      const cached = resolved.get(referenced)
+      if (cached !== undefined) {
+        if (depth + cached.reach > maxDepth) {
+          return problem(path, tooDeep)
+        }
+        deepest = Math.max(deepest, depth + cached.reach)
+        return cached.type
       }
-      return resolved.get(referenced)
+      const outer = deepest
+      deepest = depth
+      resolving.add(name)
+      const type = valueType(schemas[referenced], at(schemasPath, referenced))
+      resolving.delete(name)
+      resolved.set(referenced, { type, reach: deepest - depth })
+      deepest = Math.max(outer, deepest)
+      return type
     }
     const anyOf = membersOf(schema)
     if (anyOf !== undefined) {
@@ -579,20 +593,29 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
     }
     const members = isRecord(schema) ? (membersOf(schema) ?? [schema]) : [schema]
     const memberPath = isRecord(schema) ? at(path, membersKeyOf(schema)) : path
-    const names = members.flatMap((member, index) => {
+    // Each name once, a union's members too, however often a union is given: its members are
+    // listed the first time only, so the names are never more than the document's schemas.
+    const names = new Set<string>()
+    const seen = new Set<string>()
+    let isErrors = members.length > 0
+    for (const [index, member] of members.entries()) {
       const type = valueType(member, members.length === 1 ? path : at(memberPath, index))
       const named = type?._tag === "Named" ? type.name : undefined
-      const union = named === undefined ? undefined : declarationOf.get(named)
-      if (union?._tag === "Union") {
-        return union.cases.map((entry) => entry.type)
+      if (named === undefined) {
+        isErrors = false
+      } else if (!seen.has(named)) {
+        seen.add(named)
+        const union = declarationOf.get(named)
+        for (const name of union?._tag === "Union" ? union.cases.map((entry) => entry.type) : [named]) {
+          names.add(name)
+        }
       }
-      return named === undefined ? [""] : [named]
-    })
-    if (names.length === 0 || !names.every(isError)) {
+    }
+    if (!isErrors || ![...names].every(isError)) {
       problem(path, "an error must be a named object with one constant property, such as _tag, or a union of them")
       return []
     }
-    return names
+    return [...names]
   }
 
   const operations: Array<Operation> = []
@@ -711,7 +734,9 @@ export const readDocument = (document: unknown): { readonly api: Api; readonly p
           if (!isJson) {
             problem(responsePath, "an error must have a JSON body, application/json, of a named error")
           } else {
-            errors.push(...errorNames(json["schema"], at(at(responsePath, "content"), "application/json")))
+            for (const error of errorNames(json["schema"], at(at(responsePath, "content"), "application/json"))) {
+              errors.push(error)
+            }
           }
         } else {
           problem(responsePath, "responses must have a 2xx, 4xx or 5xx status")

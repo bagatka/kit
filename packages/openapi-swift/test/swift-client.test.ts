@@ -198,9 +198,19 @@ describe("swiftClient", () => {
           RawValue: { type: "string", enum: ["a", "b"] },
           Holder: {
             type: "object",
-            properties: { self: { type: "string" }, hashValue: { type: "integer" }, "JSON keys": { type: "string" } },
+            properties: {
+              self: { type: "string" },
+              RawValue: { type: "string" },
+              hashValue: { type: "integer" },
+              "JSON keys": { type: "string" },
+            },
           },
-          Values: { type: "string", enum: ["rawValue", "fine", "fine"] },
+          Values: { type: "string", enum: ["rawValue", "RawValue", "fine", "fine"] },
+          Fixed: {
+            type: "object",
+            properties: { RawValue: { type: "string", enum: ["fixed"] } },
+            required: ["RawValue"],
+          },
           Dotted: { type: "object", properties: { kind: { type: "string", enum: ["a.b"] } }, required: ["kind"] },
           Snaked: { type: "object", properties: { kind: { type: "string", enum: ["a_b"] } }, required: ["kind"] },
           Starred: { type: "object", properties: { kind: { type: "string", enum: ["*"] } }, required: ["kind"] },
@@ -210,7 +220,9 @@ describe("swiftClient", () => {
         }),
       )
       assert.deepStrictEqual(problems, [
+        "#/components/schemas/Fixed/properties/RawValue: a property's key Swift's coding keys take for their raw values' type",
         "#/components/schemas/Holder/properties/self: a property's key no Swift name can hold",
+        "#/components/schemas/Holder/properties/RawValue: a property's key Swift's coding keys take for their raw values' type",
         "#/components/schemas/Holder/properties/hashValue: a property's key Swift's Hashable takes for itself",
         "#/components/schemas/Holder/properties/JSON keys: a property's key the client takes for its own, JSON keys",
         "#/components/schemas/KeyedDecodingContainer: KeyedDecodingContainer is a name the Swift client, Swift or Foundation takes; rename the schema",
@@ -219,6 +231,7 @@ describe("swiftClient", () => {
         "#/components/schemas/RawValue: RawValue is a name the Swift client, Swift or Foundation takes; rename the schema",
         "#/components/schemas/Task: Task is a name the Swift client, Swift or Foundation takes; rename the schema",
         "#/components/schemas/Values: its value rawValue can't be a Swift name",
+        "#/components/schemas/Values: its value RawValue can't be a Swift name",
         "#/components/schemas/Values: its value fine is given twice",
         "#/components/schemas/Loop: Loop holds itself, other than in an array or a dictionary: Swift's structs can't",
       ])
@@ -1230,6 +1243,43 @@ describe("swiftClient", () => {
       assert.deepStrictEqual(yield* problemsOf(chain((next) => ({ anyOf: [next, { type: "null" }] }))), [
         `#/components/schemas/Link49/anyOf/0: ${deep}`,
       ])
+      // A schema read once and referred to again is held to the same bound: arrays of arrays 60
+      // deep, each layer a property too, so each is read first where it is shallow.
+      const layers = Object.fromEntries(
+        Array.from({ length: 60 }, (_, index) => [
+          `Layer${index}`,
+          { type: "array", items: index === 0 ? { type: "boolean" } : ref(`Layer${index - 1}`) },
+        ]),
+      )
+      const everyLayer = objectOf(Object.fromEntries(Object.keys(layers).map((name) => [name, ref(name)])))
+      const cached = yield* problemsOf(
+        documentOf(
+          { ...layers, Holder: everyLayer },
+          { responses: { "200": { description: "Layers", ...json(ref("Holder")) } } },
+        ),
+      )
+      assert.isNotEmpty(cached)
+      assert.isTrue(cached.every((found) => found.endsWith(deep)))
+    }),
+  )
+
+  it.effect("lists however many problems a document has, and reads however many errors, as values", () =>
+    Effect.gen(function* () {
+      // 150,000 of the same member: a problem each, and one name, never one argument each.
+      const many = Array.from({ length: 150_000 }, () => ref("Bad"))
+      const problems = yield* problemsOf(
+        documentOf(
+          { Bad: tagged("Bad"), Repeated: { anyOf: many } },
+          {
+            responses: {
+              "200": { description: "Things", ...json(string) },
+              "400": { description: "Bad", ...json({ anyOf: many }) },
+            },
+          },
+        ),
+      )
+      assert.strictEqual(problems.length, 150_000)
+      assert.strictEqual(problems[0], "#/components/schemas/Repeated: a union's members must each have their own _tag")
     }),
   )
 
@@ -1267,7 +1317,13 @@ describe("swiftClient", () => {
           ),
           Everything: objectOf({ link: ref("Link0"), choice: ref("Choice"), holder: ref("Holder") }),
         },
-        { responses: { "200": { description: "Everything", ...json(ref("Everything")) } } },
+        {
+          responses: {
+            "200": { description: "Everything", ...json(ref("Everything")) },
+            // A union of n errors, given n times: n names, never n².
+            "400": { description: "Failures", ...json({ anyOf: range.map(() => ref("Choice")) }) },
+          },
+        },
       )
       const started = yield* Clock.currentTimeMillis
       yield* swiftClient(document)
