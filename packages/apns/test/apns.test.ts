@@ -305,8 +305,11 @@ describe("Apns", () => {
       const apns = fakeApns([
         { status: 403, body: '{"reason":"ExpiredProviderToken"}' },
         { status: 400, body: '{"reason":"BadDeviceToken"}' },
+        "no answer",
       ])
-      yield* withApns(key.pem, apns, send()).pipe(Effect.provideService(Tracer.Tracer, tracer))
+      yield* withApns(key.pem, apns, Effect.zip(send(), Effect.flip(send()))).pipe(
+        Effect.provideService(Tracer.Tracer, tracer),
+      )
       const named = (name: string) =>
         spans.filter((span) => span.name === name).map((span) => Object.fromEntries(span.attributes))
       assert.deepStrictEqual(named("Apns.send"), [
@@ -316,6 +319,7 @@ describe("Apns", () => {
           "apns.answer": "Rejected",
           "apns.reason": "BadDeviceToken",
         },
+        { "apns.push_type": "alert", "apns.environment": "development" },
       ])
       // Each request, as OpenTelemetry's HTTP client spans have it, the path by its template.
       assert.deepStrictEqual(
@@ -323,12 +327,19 @@ describe("Apns", () => {
         [
           ["/3/device/{deviceToken}", 403],
           ["/3/device/{deviceToken}", 400],
+          ["/3/device/{deviceToken}", undefined],
         ],
       )
-      // Every name, attribute and event a tracer would export.
+      // Every name, attribute and event a tracer would export, and the error a span ended with, as
+      // Effect's OTLP exporter writes it.
       const exported: Array<string> = []
       for (const span of spans) {
         exported.push(span.name, ...[...span.attributes.values()].map(String))
+        if (span.status._tag === "Ended" && Exit.isFailure(span.status.exit)) {
+          for (const error of Cause.prettyErrors(span.status.exit.cause)) {
+            exported.push(error.message, error.stack ?? "")
+          }
+        }
         for (const [name, , attributes] of span.events) {
           exported.push(name, ...Object.values(attributes).map(String))
         }

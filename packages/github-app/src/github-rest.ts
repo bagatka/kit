@@ -55,6 +55,8 @@ export const ask = Effect.fnUntraced(function* (client: HttpClient.HttpClient, q
   const authorized =
     question.token === undefined ? unauthorized : HttpClientRequest.bearerToken(unauthorized, question.token)
   const request = yield* withBody(authorized, question.body)
+  // A failure becomes GitHubUnavailable before a span of this package's ends, since a tracer exports
+  // the error a span ends with, and HttpClientError's message holds the URL.
   const answered = client.execute(request).pipe(
     Effect.flatMap((response) =>
       Effect.map(response.text, (body): Answer => ({
@@ -65,36 +67,33 @@ export const ask = Effect.fnUntraced(function* (client: HttpClient.HttpClient, q
         body,
       })),
     ),
-  )
-  const traced =
-    question.shownAs === undefined
-      ? answered
-      : answered.pipe(
-          Effect.tap((answer) =>
-            Effect.annotateCurrentSpan({
-              "http.response.status_code": answer.status,
-              ...(answer.status >= 400 ? { "error.type": String(answer.status) } : {}),
-            }),
-          ),
-          Effect.provideService(HttpClient.TracerDisabledWhen, () => true),
-          Effect.withSpan(question.method, {
-            kind: "client",
-            attributes: {
-              "http.request.method": question.method,
-              "server.address": "api.github.com",
-              "server.port": 443,
-              "url.scheme": "https",
-              "url.template": question.shownAs,
-            },
-          }),
-        )
-  return yield* traced.pipe(
     Effect.timeout(answerTimeout),
     Effect.catchTags({
       TimeoutError: () => Effect.fail(new GitHubUnavailable({ reason: "GitHub didn't answer in 15 seconds" })),
       HttpClientError: () => Effect.fail(new GitHubUnavailable({ reason: "GitHub didn't answer" })),
     }),
   )
+  return yield* question.shownAs === undefined
+    ? answered
+    : answered.pipe(
+        Effect.tap((answer) =>
+          Effect.annotateCurrentSpan({
+            "http.response.status_code": answer.status,
+            ...(answer.status >= 400 ? { "error.type": String(answer.status) } : {}),
+          }),
+        ),
+        Effect.provideService(HttpClient.TracerDisabledWhen, () => true),
+        Effect.withSpan(question.method, {
+          kind: "client",
+          attributes: {
+            "http.request.method": question.method,
+            "server.address": "api.github.com",
+            "server.port": 443,
+            "url.scheme": "https",
+            "url.template": question.shownAs,
+          },
+        }),
+      )
 })
 
 const withBody = (request: HttpClientRequest.HttpClientRequest, body: Schema.JsonObject | undefined) =>

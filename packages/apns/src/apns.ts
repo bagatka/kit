@@ -216,10 +216,20 @@ export class Apns extends Context.Service<
           // The whole answer, its body read too, within 10 seconds. The request's span is this
           // package's: the URL holds the device token, which Effect's span would export as
           // `url.full`, so it has OpenTelemetry's HTTP attributes with the path's template instead.
+          // A failure becomes ApnsUnavailable before the span ends, since a tracer exports the error
+          // a span ends with, and HttpClientError's message holds the URL.
           const host = hosts[push.environment]
           const response = yield* client.execute(request).pipe(
             Effect.flatMap((answered) =>
               Effect.map(answered.text, (text) => ({ status: answered.status, headers: answered.headers, text })),
+            ),
+            Effect.timeout(Duration.seconds(10)),
+            Effect.mapError(
+              (error) =>
+                new ApnsUnavailable({
+                  reason:
+                    error._tag === "TimeoutError" ? "APNs didn't answer in 10 seconds" : "APNs couldn't be reached",
+                }),
             ),
             Effect.tap((answered) =>
               Effect.annotateCurrentSpan({
@@ -238,14 +248,6 @@ export class Apns extends Context.Service<
                 "url.template": "/3/device/{deviceToken}",
               },
             }),
-            Effect.timeout(Duration.seconds(10)),
-            Effect.mapError(
-              (error) =>
-                new ApnsUnavailable({
-                  reason:
-                    error._tag === "TimeoutError" ? "APNs didn't answer in 10 seconds" : "APNs couldn't be reached",
-                }),
-            ),
           )
           if (response.status === 200) {
             return ApnsAccepted.make({ apnsId: response.headers["apns-id"] })

@@ -168,6 +168,7 @@ describe("convertManifest", () => {
       const github = fakeGitHub({
         "POST /app-manifests/abc123secret/conversions": [
           { status: 400, body: errorJson("Problems parsing JSON", 400) },
+          "connection lost",
         ],
       })
       // A tracer that keeps every span it makes.
@@ -187,11 +188,31 @@ describe("convertManifest", () => {
       const defect = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
       assert.include(typeof defect === "string" ? defect : "", "/app-manifests/{code}/conversions")
       assert.notInclude(typeof defect === "string" ? defect : "", "abc123secret")
-      // Its request is a client span with the path's template, and no span holds the code.
-      const request = spans.find((span) => span.kind === "client")
-      assert.strictEqual(request?.attributes.get("url.template"), "/app-manifests/{code}/conversions")
-      assert.strictEqual(request?.attributes.get("http.response.status_code"), 400)
-      const traced = spans.flatMap((span) => Array.from(span.attributes.values(), String).concat(span.name))
+      const unavailable = yield* convertManifest("abc123secret").pipe(
+        Effect.provide(github.layer),
+        Effect.withTracer(tracer),
+        Effect.flip,
+      )
+      assert.deepStrictEqual(factsOf(unavailable), { _tag: "GitHubUnavailable", reason: "GitHub didn't answer" })
+      // Its request is a client span with the path's template, and no span holds the code: not its
+      // name, attributes, or the error it ended with, as Effect's OTLP exporter writes it.
+      const requests = spans.filter((span) => span.kind === "client")
+      assert.deepStrictEqual(
+        requests.map((span) => [span.attributes.get("url.template"), span.attributes.get("http.response.status_code")]),
+        [
+          ["/app-manifests/{code}/conversions", 400],
+          ["/app-manifests/{code}/conversions", undefined],
+        ],
+      )
+      const traced: Array<string> = []
+      for (const span of spans) {
+        traced.push(span.name, ...Array.from(span.attributes.values(), String))
+        if (span.status._tag === "Ended" && Exit.isFailure(span.status.exit)) {
+          for (const error of Cause.prettyErrors(span.status.exit.cause)) {
+            traced.push(error.message, error.stack ?? "")
+          }
+        }
+      }
       assert.isFalse(
         traced.some((text) => text.includes("abc123secret")),
         traced.join(", "),
