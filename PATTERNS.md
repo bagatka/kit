@@ -250,8 +250,8 @@ Packages read what strangers send: tokens, keys, bodies, documents, text.
 - **What is published is the tarball the check installed.** `bun run build` packs each package with
   `npm pack`, refuses a tarball holding anything but `package.json`, `README.md`, `CHANGELOG.md`,
   `LICENSE`, `dist/` and `src/`, and installs the tarballs themselves for the checks.
-- **A push to `main` publishes** each `name@version` npm doesn't have, dependencies first, with
-  provenance (`.github/workflows/publish.yml`), in two jobs: one installs, checks, tests and packs,
+- **A push to `main` publishes,** or the workflow run by hand on `main`, each `name@version` npm
+  doesn't have, dependencies first, with provenance (`.github/workflows/publish.yml`), in two jobs: one installs, checks, tests and packs,
   and can only read the repository; the other installs only npm and runs nothing of ours, publishes those
   tarballs, and alone may ask for the token npm accepts, in the `npm` environment, which only `main`
   deploys to, and only from main's newest commit. npm signs it in by trusted publishing bound to

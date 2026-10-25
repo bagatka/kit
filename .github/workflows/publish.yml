@@ -1,7 +1,7 @@
 # Publishes the packages, packages/*, to npm as @bagatka/<name>: on every push to main that changes
-# packages/**, each one whose name@version npm doesn't have yet, dependencies first, with
-# provenance (PATTERNS.md, "Publishing"). npm never takes a version twice, so a change reaches npm
-# only with a new version.
+# packages/**, or when run by hand on main (`gh workflow run publish.yml --ref main`), each one
+# whose name@version npm doesn't have yet, dependencies first, with provenance (PATTERNS.md,
+# "Publishing"). npm never takes a version twice, so a change reaches npm only with a new version.
 #
 # Two jobs, so nothing that installs or runs dependencies can publish:
 # - `build` installs, checks, tests, and packs each package into the tarball the check installed and
@@ -26,6 +26,9 @@ on:
   push:
     branches: [main]
     paths: ["packages/**"]
+  # By hand, for a publish no push started, or one that failed. Only main's newest commit publishes,
+  # whatever ref it is run on (below), and only main may deploy to the `npm` environment.
+  workflow_dispatch:
 
 permissions: {}
 
@@ -117,7 +120,7 @@ jobs:
           # only the newest commit on main publishes.
           tip="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | cut -f1)"
           if [ "$tip" != "$GITHUB_SHA" ]; then
-            echo "::error::main is at $tip now, not at $GITHUB_SHA: push again, or re-run the newest run."
+            echo "::error::main is at $tip now, not at $GITHUB_SHA: run it again on main's newest commit."
             exit 1
           fi
           if [ -n "$NPM_TOKEN" ]; then
@@ -139,7 +142,7 @@ jobs:
               exit 1
             fi
             if ! npm publish "./$tarball" --provenance --access public; then
-              echo "::error::npm didn't publish $package; its output above says why. A package without a trusted publisher yet needs one (see the top of this workflow), then a new push."
+              echo "::error::npm didn't publish $package; its output above says why. A package without a trusted publisher yet needs one (see the top of this workflow), then run this again: gh workflow run publish.yml --ref main"
               exit 1
             fi
           done < order.txt
