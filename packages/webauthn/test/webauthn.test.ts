@@ -46,6 +46,13 @@ const bytes = (base64url: string) =>
   new Uint8Array(Result.getOrElse(Base64Url.decode(base64url), () => new Uint8Array(0)))
 const changed = (base64url: string, change: (data: Uint8Array) => Uint8Array) =>
   Base64Url.encode(change(bytes(base64url)))
+// A DER signature with its r changed, its lengths made to match.
+const withR = (change: (r: Uint8Array) => Uint8Array) => (data: Uint8Array) => {
+  const rLength = data[3] ?? 0
+  const r = change(data.subarray(4, 4 + rLength))
+  const body = Uint8Array.of(0x02, r.length, ...r, ...data.subarray(4 + rLength))
+  return Uint8Array.of(0x30, body.length, ...body)
+}
 const ClientDataText = Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json))
 
 // An answer with its authenticator data, its client data, or its other fields changed.
@@ -276,24 +283,58 @@ describe("passkeys", () => {
     }),
   )
 
-  it.effect("reads only canonical base64url, and refuses a signature whose INTEGERs don't fit P-256", () =>
+  it.effect("reads only canonical base64url, and only strict DER, whose INTEGERs fit P-256", () =>
     Effect.gen(function* () {
       const authenticator = yield* newAuthenticator
       const passkey = yield* verifyRegistration(subtle, yield* authenticator.register(ceremony, account), expected)
-      const signed = yield* authenticator.authenticate(ceremony)
+      // A signature whose r needs no leading zero, as half of them do, so adding one is refused only
+      // as a zero it doesn't need.
+      let signed = yield* authenticator.authenticate(ceremony)
+      while (bytes(signed.response.signature)[4] === 0) {
+        signed = yield* authenticator.authenticate(ceremony)
+      }
       const padded = { ...signed, response: { ...signed.response, signature: `${signed.response.signature}=` } }
       // An INTEGER longer than P-256's 32 bytes doesn't fit, and is refused before Web Crypto sees it.
       const tooLong = changed(signed.response.signature, () =>
         Uint8Array.of(0x30, 0x46, 0x02, 0x21, 0x7f, ...new Uint8Array(32), 0x02, 0x21, 0x7f, ...new Uint8Array(32)),
       )
-      const notDer = { ...signed, response: { ...signed.response, signature: tooLong } }
-      assert.deepStrictEqual(
-        [
-          yield* reasonOf(verifyAuthentication(subtle, padded, passkey, expected)),
-          yield* reasonOf(verifyAuthentication(subtle, notDer, passkey, expected)),
-        ],
-        ["The signature isn't canonical base64url", "The signature isn't ECDSA in DER"],
+      // The same r and s in another encoding, which Web Crypto, seeing only r and s, would take: a
+      // wrong tag or length, bytes after the SEQUENCE, and r with a zero it doesn't need, or negative.
+      // A zero r doesn't need, r with no bytes, and r made negative: its zero removed, or its first byte high.
+      const extraZero = withR((r) => Uint8Array.of(0, ...r))
+      const empty = withR(() => new Uint8Array(0))
+      const negative = withR((r) =>
+        r[0] === 0 ? r.subarray(1) : Uint8Array.from(r, (byte, index) => (index === 0 ? byte | 0x80 : byte)),
       )
+      const reencoded = [
+        tooLong,
+        changed(signed.response.signature, (data) =>
+          Uint8Array.from(data, (byte, index) => (index === 0 ? 0x31 : byte)),
+        ),
+        changed(signed.response.signature, (data) => Uint8Array.from(data, (byte, index) => (index === 1 ? 0 : byte))),
+        changed(signed.response.signature, (data) =>
+          Uint8Array.from(data, (byte, index) => (index === 2 ? 0x04 : byte)),
+        ),
+        changed(signed.response.signature, (data) => Uint8Array.of(...data, 0)),
+        changed(signed.response.signature, (data) => Uint8Array.of(0x30, (data[1] ?? 0) + 1, ...data.subarray(2), 0)),
+        changed(signed.response.signature, extraZero),
+        changed(signed.response.signature, empty),
+        changed(signed.response.signature, negative),
+      ]
+      assert.strictEqual(
+        yield* reasonOf(verifyAuthentication(subtle, padded, passkey, expected)),
+        "The signature isn't canonical base64url",
+      )
+      for (const signature of reencoded) {
+        const answer = { ...signed, response: { ...signed.response, signature } }
+        assert.strictEqual(
+          yield* reasonOf(verifyAuthentication(subtle, answer, passkey, expected)),
+          "The signature isn't ECDSA in DER",
+          signature,
+        )
+      }
+      // The answer as signed still signs in.
+      yield* verifyAuthentication(subtle, signed, passkey, expected)
     }),
   )
 

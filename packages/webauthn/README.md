@@ -203,8 +203,9 @@ What only the caller can do, which the checks rely on:
 - **Challenges are made here:** 32 random bytes from the `Crypto` service the host provides,
   base64url, new for every options. A kept challenge under 16 bytes, such as an empty one from a
   lookup that found nothing, matches no answer.
-- **Canonical base64url only** (no padding, line breaks or spare bits). Signatures are DER as
-  authenticators write them; whether one is the passkey's is Web Crypto's to say. ECDSA allows a
+- **Canonical base64url only** (no padding, line breaks or spare bits). Signatures are strict DER, as
+  authenticators write them, and any other encoding of the same numbers is refused, since Web Crypto
+  sees only the numbers; whether one is the passkey's is Web Crypto's to say. ECDSA allows a
   second valid signature of the same data, so never use an answer's text as its identity: using each
   challenge once is what keeps an answer from being replayed.
 - **Bounded parsing.** Credential IDs are 16 to 1023 bytes, inside the data; a registration's data
