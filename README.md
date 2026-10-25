@@ -4,19 +4,47 @@ Small, general packages for building products with [Effect](https://effect.websi
 Workers, in browsers, and anywhere else JavaScript runs. Each does one thing, with a contract that
 fits on one screen.
 
+## Packages
+
+### Anywhere JavaScript runs
+
+Workers, browsers, Deno, Bun and Node.
+
+| Package | What it does |
+|---|---|
+| [`@bagatka/jwt`](packages/jwt) | Signs JSON Web Tokens with ES256 and RS256 keys, such as Apple's `.p8` keys and a GitHub App's |
+| [`@bagatka/webauthn`](packages/webauthn) | Passkeys for a site: options to register and sign in, and checks of what a device answers |
+| [`@bagatka/scrub`](packages/scrub) | Removes credentials and personal data from text before it is stored |
+| [`@bagatka/qr-code`](packages/qr-code) | Encodes text as a QR code, such as a link a phone's camera opens, and draws it as SVG |
+| [`@bagatka/quantile-sketch`](packages/quantile-sketch) | Quantiles such as p50 and p99 of any number of values, from small sketches that merge |
+| [`@bagatka/otlp-protobuf`](packages/otlp-protobuf) | Reads and writes OpenTelemetry's OTLP/HTTP exports of traces and logs |
+
+### Calling a service
+
+Anywhere JavaScript runs, with the service's credentials. Each behaves the same way for retries,
+errors and tracing.
+
 | Package | What it does |
 |---|---|
 | [`@bagatka/apns`](packages/apns) | Sends push notifications to Apple devices through APNs, every push type |
 | [`@bagatka/app-store-connect`](packages/app-store-connect) | Follows and publishes an app's releases through the App Store Connect API, on any Apple platform |
 | [`@bagatka/github-app`](packages/github-app) | A GitHub App: its installations and their tokens, its creation from a manifest, and its webhooks' signatures |
-| [`@bagatka/jwt`](packages/jwt) | Signs JSON Web Tokens with ES256 and RS256 keys, such as Apple's `.p8` keys and a GitHub App's |
-| [`@bagatka/webauthn`](packages/webauthn) | Passkeys for a site: options to register and sign in, and checks of what a device answers |
-| [`@bagatka/openapi-swift`](packages/openapi-swift) | Writes a typed Swift client of an HTTP API from its OpenAPI 3.1 document, such as Effect's `HttpApi` writes |
-| [`@bagatka/otlp-protobuf`](packages/otlp-protobuf) | Reads and writes OpenTelemetry's OTLP/HTTP exports of traces and logs |
-| [`@bagatka/qr-code`](packages/qr-code) | Encodes text as a QR code, such as a link a phone's camera opens, and draws it as SVG |
-| [`@bagatka/quantile-sketch`](packages/quantile-sketch) | Quantiles such as p50 and p99 of any number of values, from small sketches that merge |
-| [`@bagatka/scrub`](packages/scrub) | Removes credentials and personal data from text before it is stored |
+
+### Cloudflare Workers only
+
+On a binding only a Worker has.
+
+| Package | What it does |
+|---|---|
 | [`@bagatka/ai-cloudflare-binding`](packages/ai-cloudflare-binding) | Effect AI from a Cloudflare Worker through its AI binding, with no API token: `LanguageModel` on Workers AI (text, streamed text, structured output), and Clef's decisions for `@effect/ai-cloudflare` |
+
+### In builds and checks
+
+In a build script on Bun, Node or Deno.
+
+| Package | What it does |
+|---|---|
+| [`@bagatka/openapi-swift`](packages/openapi-swift) | Writes a typed Swift client of an HTTP API from its OpenAPI 3.1 document, such as Effect's `HttpApi` writes |
 | [`@bagatka/workspace-rules`](packages/workspace-rules) | Checks a workspace's packages against rules for names, contracts, and dependencies |
 
 None is on npm yet: each one's contract is being reviewed before its first version.
