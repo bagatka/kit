@@ -41,6 +41,7 @@ public nonisolated struct OddTitleInjectedCodeAPI: Sendable {
         `page[size]`: Double? = nil,
         `default`: Kind? = nil,
         at: Date? = nil,
+        Answer: String? = nil,
     ) async throws(APIError) -> Answer {
         var `query items`: [(String, String)] = []
         `query items`.append(("query", Self.text(query)))
@@ -48,8 +49,9 @@ public nonisolated struct OddTitleInjectedCodeAPI: Sendable {
         if let `page[size]` { `query items`.append(("page[size]", Self.text(`page[size]`))) }
         if let `default` { `query items`.append(("default", Self.text(`default`))) }
         if let at { `query items`.append(("at", Self.text(at))) }
+        if let Answer { `query items`.append(("Answer", Self.text(Answer))) }
         let `the answer` = try await self.send("GET", "/answers/\(Self.segment(Self.text(id)))", query: `query items`)
-        return try Self.decoded(Answer.self, from: `the answer`)
+        return try Self.decoded(from: `the answer`)
     }
 
     @concurrent
@@ -85,6 +87,11 @@ public nonisolated struct Answer: Codable, Hashable, Sendable {
     public let type: Kind
     public let `init`: Bool?
     public let tree: Tree
+    public let String: String
+    public let Kind: Kind
+    public let Date: Date
+    public let JSONValue: JSONValue
+    public let Int: Int?
 
     public init(
         `default`: String,
@@ -97,6 +104,11 @@ public nonisolated struct Answer: Codable, Hashable, Sendable {
         type: Kind,
         `init`: Bool? = nil,
         tree: Tree,
+        String: String,
+        Kind: Kind,
+        Date: Date,
+        JSONValue: JSONValue,
+        Int: Int? = nil,
     ) {
         self.`default` = `default`
         self.container = container
@@ -108,6 +120,11 @@ public nonisolated struct Answer: Codable, Hashable, Sendable {
         self.type = type
         self.`init` = `init`
         self.tree = tree
+        self.String = String
+        self.Kind = Kind
+        self.Date = Date
+        self.JSONValue = JSONValue
+        self.Int = Int
     }
 
     private enum `JSON keys`: String, CodingKey {
@@ -121,20 +138,30 @@ public nonisolated struct Answer: Codable, Hashable, Sendable {
         case type = "type"
         case `init` = "init"
         case tree = "tree"
+        case String = "String"
+        case Kind = "Kind"
+        case Date = "Date"
+        case JSONValue = "JSONValue"
+        case Int = "Int"
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: `JSON keys`.self)
-        self.`default` = try container.decode(String.self, forKey: .`default`)
-        self.container = try container.decode(String.self, forKey: .container)
-        self.encoder = try container.decode(String.self, forKey: .encoder)
-        self.decoder = try container.decodeIfPresent(Int.self, forKey: .decoder)
-        self.`1m` = try container.decode(Int.self, forKey: .`1m`)
-        self.`a b` = try container.decode(String?.self, forKey: .`a b`)
-        self.`kebab-key` = try container.decodeIfPresent([Kind].self, forKey: .`kebab-key`)
-        self.type = try container.decode(Kind.self, forKey: .type)
-        self.`init` = try container.decodeIfPresent(Bool.self, forKey: .`init`)
-        self.tree = try container.decode(Tree.self, forKey: .tree)
+        self.`default` = try container.`value at`(.`default`)
+        self.container = try container.`value at`(.container)
+        self.encoder = try container.`value at`(.encoder)
+        self.decoder = try container.`value if present at`(.decoder)
+        self.`1m` = try container.`value at`(.`1m`)
+        self.`a b` = try container.`value at`(.`a b`)
+        self.`kebab-key` = try container.`value if present at`(.`kebab-key`)
+        self.type = try container.`value at`(.type)
+        self.`init` = try container.`value if present at`(.`init`)
+        self.tree = try container.`value at`(.tree)
+        self.String = try container.`value at`(.String)
+        self.Kind = try container.`value at`(.Kind)
+        self.Date = try container.`value at`(.Date)
+        self.JSONValue = try container.`value at`(.JSONValue)
+        self.Int = try container.`value if present at`(.Int)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -149,33 +176,48 @@ public nonisolated struct Answer: Codable, Hashable, Sendable {
         try container.encode(self.type, forKey: .type)
         try container.encodeIfPresent(self.`init`, forKey: .`init`)
         try container.encode(self.tree, forKey: .tree)
+        try container.encode(self.String, forKey: .String)
+        try container.encode(self.Kind, forKey: .Kind)
+        try container.encode(self.Date, forKey: .Date)
+        try container.encode(self.JSONValue, forKey: .JSONValue)
+        try container.encodeIfPresent(self.Int, forKey: .Int)
     }
 }
 
 public nonisolated struct Created: Codable, Hashable, Sendable {
     public let at: Date
+    public let String: String?
+    public let DecodingError: String?
 
-    public init(at: Date) {
+    public init(at: Date, String: String? = nil, DecodingError: String? = nil) {
         self.at = at
+        self.String = String
+        self.DecodingError = DecodingError
     }
 
     private enum `JSON keys`: String, CodingKey {
         case kind = "kind"
         case at = "at"
+        case String = "String"
+        case DecodingError = "DecodingError"
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: `JSON keys`.self)
-        guard try container.decode(String.self, forKey: .kind) == "note.created \"quoted\" \\ back" else {
-            throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "kind isn't note.created \"quoted\" \\ back.")
+        guard try container.`value at`(.kind) as String == "note.created \"quoted\" \\ back" else {
+            throw container.`corruption at`(.kind, "kind isn't note.created \"quoted\" \\ back.")
         }
-        self.at = try container.decode(Date.self, forKey: .at)
+        self.at = try container.`value at`(.at)
+        self.String = try container.`value if present at`(.String)
+        self.DecodingError = try container.`value if present at`(.DecodingError)
     }
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: `JSON keys`.self)
         try container.encode("note.created \"quoted\" \\ back", forKey: .kind)
         try container.encode(self.at, forKey: .at)
+        try container.encodeIfPresent(self.String, forKey: .String)
+        try container.encodeIfPresent(self.DecodingError, forKey: .DecodingError)
     }
 }
 
@@ -189,8 +231,8 @@ public nonisolated struct Deleted: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: `JSON keys`.self)
-        guard try container.decode(String.self, forKey: .kind) == "note-deleted" else {
-            throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "kind isn't note-deleted.")
+        guard try container.`value at`(.kind) as String == "note-deleted" else {
+            throw container.`corruption at`(.kind, "kind isn't note-deleted.")
         }
     }
 
@@ -241,8 +283,8 @@ public nonisolated struct Gone: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: `JSON keys`.self)
-        guard try container.decode(String.self, forKey: .code) == "gone\u{a}for good" else {
-            throw DecodingError.dataCorruptedError(forKey: .code, in: container, debugDescription: "code isn't gone\u{a}for good.")
+        guard try container.`value at`(.code) as String == "gone\u{a}for good" else {
+            throw container.`corruption at`(.code, "code isn't gone\u{a}for good.")
         }
     }
 
@@ -262,8 +304,8 @@ public nonisolated struct Hashed: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: `JSON keys`.self)
-        guard try container.decode(String.self, forKey: .hashValue) == "hashed" else {
-            throw DecodingError.dataCorruptedError(forKey: .hashValue, in: container, debugDescription: "hashValue isn't hashed.")
+        guard try container.`value at`(.hashValue) as String == "hashed" else {
+            throw container.`corruption at`(.hashValue, "hashValue isn't hashed.")
         }
     }
 
@@ -304,8 +346,8 @@ public nonisolated struct Tree: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: `JSON keys`.self)
-        self.label = try container.decode(String.self, forKey: .label)
-        self.children = try container.decode([Tree].self, forKey: .children)
+        self.label = try container.`value at`(.label)
+        self.children = try container.`value at`(.children)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -351,6 +393,20 @@ public nonisolated enum JSONValue: Codable, Hashable, Sendable {
         case .array(let value): try container.encode(value)
         case .object(let value): try container.encode(value)
         }
+    }
+}
+
+nonisolated extension KeyedDecodingContainer {
+    fileprivate func `value at`<Value: Decodable>(_ key: Key) throws -> Value {
+        try decode(Value.self, forKey: key)
+    }
+
+    fileprivate func `value if present at`<Value: Decodable>(_ key: Key) throws -> Value? {
+        try decodeIfPresent(Value.self, forKey: key)
+    }
+
+    fileprivate func `corruption at`(_ key: Key, _ description: String) -> DecodingError {
+        .dataCorruptedError(forKey: key, in: self, debugDescription: description)
     }
 }
 
@@ -411,9 +467,9 @@ nonisolated extension OddTitleInjectedCodeAPI {
         }
     }
 
-    private static func decoded<Value: Decodable>(_ type: Value.Type, from answer: (data: Data, status: Int)) throws(APIError) -> Value {
+    private static func decoded<Value: Decodable>(from answer: (data: Data, status: Int)) throws(APIError) -> Value {
         do {
-            return try jsonDecoder().decode(type, from: answer.data)
+            return try jsonDecoder().decode(Value.self, from: answer.data)
         } catch {
             throw .unreadable(status: answer.status, reason: "\(error)")
         }

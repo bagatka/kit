@@ -124,7 +124,9 @@ func title(ofNote id: String, at url: URL, token: String) async -> String {
   errors are typed (`throws(APIError)`). Names that aren't Swift identifiers are raw identifiers,
   `` .`1m` `` (Swift 6.2). The client's own names are raw identifiers too, and a document's that is
   one of them is refused: a property named `JSON keys`, a parameter named `query items`,
-  `request body` or `the answer`.
+  `request body` or `the answer`. Any other name works, one of a type included: a property named
+  `String`, `Date` or after one of the API's types reads as that property, since the client never
+  writes a type where a property's or parameter's name could stand for it.
 - **No text of the document can write code.** Titles and descriptions become comments, their line
   breaks of every kind turned into comment lines; strings are literals with every control character
   escaped; every name, a constant's key included, is checked before it is written.

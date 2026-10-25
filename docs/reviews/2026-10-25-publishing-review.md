@@ -299,3 +299,10 @@ It found the rest sound: no device token, manifest code or private text in expor
 failure it tried; every truncated COSE key refused; every accuracy within bounds near the largest
 finite value; scrub linear to 16 million characters on both engines; webhooks and `otlp-protobuf`
 under 40,000 arbitrary bodies each.
+
+A third audit read only the second's three fixes. It found scrub's new scan and strict DER sound
+(2 million texts and every boundary for scrub, 1.5 million DER mutations), and one problem.
+
+| Package | What was found | Now |
+|---|---|---|
+| `openapi-swift` | A property or parameter named after a type the client writes as `Type.self` (`String`, `Int`, `Double`, `Bool`, `Date`, `JSONValue`, any of the API's types), or `DecodingError`, shadowed it and wrote Swift that doesn't compile (**medium**) | The client infers those types from the property or the return type, so no name is refused for it; such names, PascalCase APIs' among them, are in the fixture the compiler checks |

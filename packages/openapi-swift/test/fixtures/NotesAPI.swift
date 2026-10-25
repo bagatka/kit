@@ -41,21 +41,21 @@ public nonisolated struct NotesAPI: Sendable {
         if let color { `query items`.append(("color", Self.text(color))) }
         if let q { `query items`.append(("q", Self.text(q))) }
         let `the answer` = try await self.send("GET", "/notes", query: `query items`)
-        return try Self.decoded([Note].self, from: `the answer`)
+        return try Self.decoded(from: `the answer`)
     }
 
     /// Fails with `.badRequest`, `.notAllowed`, or as any call can.
     @concurrent
     public func createNote(_ `request body`: NewNote) async throws(APIError) -> Note {
         let `the answer` = try await self.send("POST", "/notes", body: try Self.encoded(`request body`))
-        return try Self.decoded(Note.self, from: `the answer`)
+        return try Self.decoded(from: `the answer`)
     }
 
     /// Fails with `.noteNotFound`, or as any call can.
     @concurrent
     public func getNote(id: String) async throws(APIError) -> Note {
         let `the answer` = try await self.send("GET", "/notes/\(Self.segment(Self.text(id)))")
-        return try Self.decoded(Note.self, from: `the answer`)
+        return try Self.decoded(from: `the answer`)
     }
 
     /// Fails with `.notAllowed`, `.noteNotFound`, or as any call can.
@@ -92,10 +92,10 @@ public nonisolated struct Circle: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: `JSON keys`.self)
-        guard try container.decode(String.self, forKey: ._tag) == "Circle" else {
-            throw DecodingError.dataCorruptedError(forKey: ._tag, in: container, debugDescription: "_tag isn't Circle.")
+        guard try container.`value at`(._tag) as String == "Circle" else {
+            throw container.`corruption at`(._tag, "_tag isn't Circle.")
         }
-        self.radius = try container.decode(Double.self, forKey: .radius)
+        self.radius = try container.`value at`(.radius)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -128,8 +128,8 @@ public nonisolated struct EffectHttpApiErrorBadRequest: Codable, Hashable, Senda
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: `JSON keys`.self)
-        guard try container.decode(String.self, forKey: ._tag) == "BadRequest" else {
-            throw DecodingError.dataCorruptedError(forKey: ._tag, in: container, debugDescription: "_tag isn't BadRequest.")
+        guard try container.`value at`(._tag) as String == "BadRequest" else {
+            throw container.`corruption at`(._tag, "_tag isn't BadRequest.")
         }
     }
 
@@ -164,11 +164,11 @@ public nonisolated struct NewNote: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: `JSON keys`.self)
-        self.title = try container.decode(String.self, forKey: .title)
-        self.body = try container.decodeIfPresent(String.self, forKey: .body)
-        self.color = try container.decode(Color.self, forKey: .color)
-        self.shape = try container.decode(Shape.self, forKey: .shape)
-        self.stamp = try container.decode(Circle.self, forKey: .stamp)
+        self.title = try container.`value at`(.title)
+        self.body = try container.`value if present at`(.body)
+        self.color = try container.`value at`(.color)
+        self.shape = try container.`value at`(.shape)
+        self.stamp = try container.`value at`(.stamp)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -195,10 +195,10 @@ public nonisolated struct NotAllowed: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: `JSON keys`.self)
-        guard try container.decode(String.self, forKey: ._tag) == "NotAllowed" else {
-            throw DecodingError.dataCorruptedError(forKey: ._tag, in: container, debugDescription: "_tag isn't NotAllowed.")
+        guard try container.`value at`(._tag) as String == "NotAllowed" else {
+            throw container.`corruption at`(._tag, "_tag isn't NotAllowed.")
         }
-        self.reason = try container.decode(String.self, forKey: .reason)
+        self.reason = try container.`value at`(.reason)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -271,19 +271,19 @@ public nonisolated struct Note: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: `JSON keys`.self)
-        self.id = try container.decode(String.self, forKey: .id)
-        self.title = try container.decode(String.self, forKey: .title)
-        self.body = try container.decode(String?.self, forKey: .body)
-        self.pinned = try container.decode(Bool.self, forKey: .pinned)
-        self.color = try container.decode(Color.self, forKey: .color)
-        self.tags = try container.decode([String].self, forKey: .tags)
-        self.createdAt = try container.decode(String.self, forKey: .createdAt)
-        self.views = try container.decode(Int.self, forKey: .views)
-        self.score = try container.decode(Double.self, forKey: .score)
-        self.extra = try container.decode([String: Double].self, forKey: .extra)
-        self.meta = try container.decodeIfPresent(JSONValue.self, forKey: .meta)
-        self.archivedAt = try container.decodeIfPresent(String.self, forKey: .archivedAt)
-        self.rank = try container.decodeIfPresent(Int.self, forKey: .rank)
+        self.id = try container.`value at`(.id)
+        self.title = try container.`value at`(.title)
+        self.body = try container.`value at`(.body)
+        self.pinned = try container.`value at`(.pinned)
+        self.color = try container.`value at`(.color)
+        self.tags = try container.`value at`(.tags)
+        self.createdAt = try container.`value at`(.createdAt)
+        self.views = try container.`value at`(.views)
+        self.score = try container.`value at`(.score)
+        self.extra = try container.`value at`(.extra)
+        self.meta = try container.`value if present at`(.meta)
+        self.archivedAt = try container.`value if present at`(.archivedAt)
+        self.rank = try container.`value if present at`(.rank)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -318,10 +318,10 @@ public nonisolated struct NoteNotFound: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: `JSON keys`.self)
-        guard try container.decode(String.self, forKey: ._tag) == "NoteNotFound" else {
-            throw DecodingError.dataCorruptedError(forKey: ._tag, in: container, debugDescription: "_tag isn't NoteNotFound.")
+        guard try container.`value at`(._tag) as String == "NoteNotFound" else {
+            throw container.`corruption at`(._tag, "_tag isn't NoteNotFound.")
         }
-        self.id = try container.decode(String.self, forKey: .id)
+        self.id = try container.`value at`(.id)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -376,10 +376,10 @@ public nonisolated struct Square: Codable, Hashable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: `JSON keys`.self)
-        guard try container.decode(String.self, forKey: ._tag) == "Square" else {
-            throw DecodingError.dataCorruptedError(forKey: ._tag, in: container, debugDescription: "_tag isn't Square.")
+        guard try container.`value at`(._tag) as String == "Square" else {
+            throw container.`corruption at`(._tag, "_tag isn't Square.")
         }
-        self.side = try container.decode(Double.self, forKey: .side)
+        self.side = try container.`value at`(.side)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -425,6 +425,20 @@ public nonisolated enum JSONValue: Codable, Hashable, Sendable {
         case .array(let value): try container.encode(value)
         case .object(let value): try container.encode(value)
         }
+    }
+}
+
+nonisolated extension KeyedDecodingContainer {
+    fileprivate func `value at`<Value: Decodable>(_ key: Key) throws -> Value {
+        try decode(Value.self, forKey: key)
+    }
+
+    fileprivate func `value if present at`<Value: Decodable>(_ key: Key) throws -> Value? {
+        try decodeIfPresent(Value.self, forKey: key)
+    }
+
+    fileprivate func `corruption at`(_ key: Key, _ description: String) -> DecodingError {
+        .dataCorruptedError(forKey: key, in: self, debugDescription: description)
     }
 }
 
@@ -487,9 +501,9 @@ nonisolated extension NotesAPI {
         }
     }
 
-    private static func decoded<Value: Decodable>(_ type: Value.Type, from answer: (data: Data, status: Int)) throws(APIError) -> Value {
+    private static func decoded<Value: Decodable>(from answer: (data: Data, status: Int)) throws(APIError) -> Value {
         do {
-            return try jsonDecoder().decode(type, from: answer.data)
+            return try jsonDecoder().decode(Value.self, from: answer.data)
         } catch {
             throw .unreadable(status: answer.status, reason: "\(error)")
         }

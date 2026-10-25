@@ -116,7 +116,7 @@ describe("swiftClient", () => {
         }),
         info: { title: "  Notes \n App ", version: "1" },
       })
-      assert.include(marked, '.decode(String.self, forKey: .kind) == "a\\u{7f}b\\u{2028}c\\u{2029}d" else {')
+      assert.include(marked, '.`value at`(.kind) as String == "a\\u{7f}b\\u{2028}c\\u{2029}d" else {')
       for (const character of [del, lineSeparator, paragraphSeparator]) {
         assert.notInclude(marked, character)
       }

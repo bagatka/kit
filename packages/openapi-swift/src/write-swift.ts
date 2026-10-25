@@ -3,7 +3,9 @@ import { camelCase, docComment, oneLine, pascalCase, stringLiteral, swiftName } 
 
 // Swift source from what the generator read; every name it writes was checked before. Names the
 // generated code declares for itself are raw identifiers, such as `JSON keys`; a document's name
-// that is one of them was refused (`swift-client.ts`).
+// that is one of them was refused (`swift-client.ts`). Where a document's names are in scope, in a
+// struct's methods and an operation's, no type is written as an expression (`String.self`), which
+// a property or parameter of that name would shadow; types are inferred instead.
 
 // A name as Swift writes it. One that reaches here unchecked is this package's bug, which dies
 // rather than writing the document's text as code.
@@ -62,16 +64,13 @@ const propertyType = (property: Property): string => {
 
 const isOptional = (property: Property): boolean => !property.required || property.type._tag === "Optional"
 
-// The type a property is decoded as: a required one, null included, as it is; one that may be
-// missing as what it holds when present.
-const decodeLine = (property: Property): string => {
-  const key = `.${name(property.key)}`
-  if (property.required) {
-    return `        self.${name(property.key)} = try container.decode(${swiftType(property.type)}.self, forKey: ${key})`
-  }
-  const present = property.type._tag === "Optional" ? property.type.of : property.type
-  return `        self.${name(property.key)} = try container.decodeIfPresent(${swiftType(present)}.self, forKey: ${key})`
-}
+// A required property is decoded, null included, as it is; one that may be missing as what it holds
+// when present. Its type is inferred from the property's, never written as `Type.self`, which a
+// property or parameter of the same name would shadow.
+const decodeLine = (property: Property): string =>
+  property.required
+    ? `        self.${name(property.key)} = try container.\`value at\`(.${name(property.key)})`
+    : `        self.${name(property.key)} = try container.\`value if present at\`(.${name(property.key)})`
 
 // A required key is written even when nil, as null; one that may be missing is left out then.
 const encodeLine = (property: Property): string =>
@@ -102,8 +101,8 @@ const writeStruct = (declaration: Struct): string => {
     "    public init(from decoder: any Decoder) throws {",
     "        let container = try decoder.container(keyedBy: `JSON keys`.self)",
     ...declaration.constants.flatMap((constant) => [
-      `        guard try container.decode(String.self, forKey: .${name(constant.key)}) == ${stringLiteral(constant.value)} else {`,
-      `            throw DecodingError.dataCorruptedError(forKey: .${name(constant.key)}, in: container, debugDescription: ${stringLiteral(`${constant.key} isn't ${constant.value}.`)})`,
+      `        guard try container.\`value at\`(.${name(constant.key)}) as String == ${stringLiteral(constant.value)} else {`,
+      `            throw container.\`corruption at\`(.${name(constant.key)}, ${stringLiteral(`${constant.key} isn't ${constant.value}.`)})`,
       "        }",
     ]),
     ...declaration.properties.map(decodeLine),
@@ -243,9 +242,7 @@ const writeOperation = (api: Api, operation: Operation): string => {
     operation.result === undefined
       ? `        _ = try await self.send(${send})`
       : `        let \`the answer\` = try await self.send(${send})`,
-    ...(operation.result === undefined
-      ? []
-      : [`        return try Self.decoded(${swiftType(operation.result)}.self, from: \`the answer\`)`]),
+    ...(operation.result === undefined ? [] : ["        return try Self.decoded(from: `the answer`)"]),
     "    }",
   ].join("\n")
 }
@@ -353,9 +350,9 @@ const writeSupport = (api: Api): string =>
     "",
     ...writeFailure(api),
     "",
-    "    private static func decoded<Value: Decodable>(_ type: Value.Type, from answer: (data: Data, status: Int)) throws(APIError) -> Value {",
+    "    private static func decoded<Value: Decodable>(from answer: (data: Data, status: Int)) throws(APIError) -> Value {",
     "        do {",
-    "            return try jsonDecoder().decode(type, from: answer.data)",
+    "            return try jsonDecoder().decode(Value.self, from: answer.data)",
     "        } catch {",
     '            throw .unreadable(status: answer.status, reason: "\\(error)")',
     "        }",
@@ -421,6 +418,24 @@ const writeSupport = (api: Api): string =>
     "}",
   ].join("\n")
 
+// How a struct reads its keys, its types inferred: in a struct, a property named `String` or after
+// one of the API's types would shadow that type in `String.self`.
+const keyedDecoding = [
+  "nonisolated extension KeyedDecodingContainer {",
+  "    fileprivate func `value at`<Value: Decodable>(_ key: Key) throws -> Value {",
+  "        try decode(Value.self, forKey: key)",
+  "    }",
+  "",
+  "    fileprivate func `value if present at`<Value: Decodable>(_ key: Key) throws -> Value? {",
+  "        try decodeIfPresent(Value.self, forKey: key)",
+  "    }",
+  "",
+  "    fileprivate func `corruption at`(_ key: Key, _ description: String) -> DecodingError {",
+  "        .dataCorruptedError(forKey: key, in: self, debugDescription: description)",
+  "    }",
+  "}",
+].join("\n")
+
 const jsonValue = [
   "/// A value of any JSON shape, as the API sends free-form data; numbers are doubles.",
   "public nonisolated enum JSONValue: Codable, Hashable, Sendable {",
@@ -478,5 +493,6 @@ export const writeSwift = (api: Api): string =>
     writeErrors(api),
     ...api.declarations.map(writeDeclaration),
     jsonValue,
+    keyedDecoding,
     writeSupport(api),
   ].join("\n\n") + "\n"

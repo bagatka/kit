@@ -11,8 +11,8 @@ export const oddDocument = {
   info: { title: "Odd\r// title: injected\u2028code", version: "1.0.0" },
   components: {
     schemas: {
-      // Keys that are keywords, that start with a digit, that hold a space or a dash, and that name
-      // what its Codable code holds.
+      // Keys that are keywords, that start with a digit, that hold a space or a dash, that name
+      // what its Codable code holds, and that name types it uses, Swift's and the API's.
       Answer: {
         type: "object",
         properties: {
@@ -26,8 +26,25 @@ export const oddDocument = {
           type: ref("Kind"),
           init: { type: "boolean" },
           tree: ref("Tree"),
+          String: string,
+          Kind: ref("Kind"),
+          Date: { type: "string", format: "date-time" },
+          JSONValue: {},
+          Int: { type: "integer" },
         },
-        required: ["default", "container", "encoder", "1m", "a b", "type", "tree"],
+        required: [
+          "default",
+          "container",
+          "encoder",
+          "1m",
+          "a b",
+          "type",
+          "tree",
+          "String",
+          "Kind",
+          "Date",
+          "JSONValue",
+        ],
       },
       // Values that are keywords, raw identifiers, and one with a quote and a backslash in it.
       Kind: { type: "string", enum: ["1m", "init", "a-b", "ok", "self"] },
@@ -39,7 +56,12 @@ export const oddDocument = {
       },
       Created: {
         type: "object",
-        properties: { kind: constant('note.created "quoted" \\ back'), at: { type: "string", format: "date-time" } },
+        properties: {
+          kind: constant('note.created "quoted" \\ back'),
+          at: { type: "string", format: "date-time" },
+          String: string,
+          DecodingError: string,
+        },
         required: ["kind", "at"],
       },
       Deleted: { type: "object", properties: { kind: constant("note-deleted") }, required: ["kind"] },
@@ -61,6 +83,7 @@ export const oddDocument = {
           { name: "page[size]", in: "query", schema: { type: "number" } },
           { name: "default", in: "query", schema: ref("Kind") },
           { name: "at", in: "query", schema: { type: "string", format: "date-time" } },
+          { name: "Answer", in: "query", schema: string },
         ],
         responses: {
           "200": { description: "The answer", content: { "application/json": { schema: ref("Answer") } } },
