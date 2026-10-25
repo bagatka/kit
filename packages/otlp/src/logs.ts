@@ -193,24 +193,25 @@ const readResourceLogs = (reader: Reader): ResourceLogs => {
  * Takes time and memory linear in the body, at most about 25 times its size, which it reads whole:
  * the caller bounds its size.
  */
-export const decodeLogs = (body: Uint8Array): Effect.Effect<ReadonlyArray<ResourceLogs>, OtlpInvalid> =>
-  Effect.suspend(() => {
-    if (!(body instanceof Uint8Array)) {
-      return Effect.fail(new OtlpInvalid({ reason: "The body isn't bytes, a Uint8Array" }))
+export const decodeLogs = Effect.fn("decodeLogs")((
+  body: Uint8Array,
+): Effect.Effect<ReadonlyArray<ResourceLogs>, OtlpInvalid> => {
+  if (!(body instanceof Uint8Array)) {
+    return Effect.fail(new OtlpInvalid({ reason: "The body isn't bytes, a Uint8Array" }))
+  }
+  const reader = readerOf(body)
+  const resourceLogs: Array<ResourceLogs> = []
+  for (let tag = readTag(reader); tag !== undefined; tag = readTag(reader)) {
+    if (tag.field === 1 && tag.wireType === 2) {
+      resourceLogs.push(readMessage(reader, readResourceLogs))
+    } else {
+      skip(reader, tag.wireType)
     }
-    const reader = readerOf(body)
-    const resourceLogs: Array<ResourceLogs> = []
-    for (let tag = readTag(reader); tag !== undefined; tag = readTag(reader)) {
-      if (tag.field === 1 && tag.wireType === 2) {
-        resourceLogs.push(readMessage(reader, readResourceLogs))
-      } else {
-        skip(reader, tag.wireType)
-      }
-    }
-    return reader.problem === undefined
-      ? Effect.succeed(resourceLogs)
-      : Effect.fail(new OtlpInvalid({ reason: reader.problem }))
-  })
+  }
+  return reader.problem === undefined
+    ? Effect.succeed(resourceLogs)
+    : Effect.fail(new OtlpInvalid({ reason: reader.problem }))
+})
 
 const writeLogRecord = (writer: Writer, record: LogRecord): void =>
   writeMessage(writer, 2, (inner) => {
@@ -242,7 +243,9 @@ const writeLogRecord = (writer: Writer, record: LogRecord): void =>
  * most 16 levels; anything else, which no decoded export holds, is a bug and dies, saying which,
  * rather than being written changed.
  */
-export const encodeLogs = (resourceLogs: ReadonlyArray<ResourceLogs>): Effect.Effect<Uint8Array> => {
+export const encodeLogs = Effect.fn("encodeLogs")((
+  resourceLogs: ReadonlyArray<ResourceLogs>,
+): Effect.Effect<Uint8Array> => {
   const writer = writerOf()
   for (const resource of resourceLogs) {
     writeMessage(writer, 1, (inner) => {
@@ -262,4 +265,4 @@ export const encodeLogs = (resourceLogs: ReadonlyArray<ResourceLogs>): Effect.Ef
   return writer.problem === undefined
     ? Effect.succeed(writtenOf(writer))
     : Effect.die(`The logs can't be written as OTLP: ${writer.problem}`)
-}
+})

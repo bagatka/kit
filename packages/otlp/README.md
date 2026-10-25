@@ -19,24 +19,49 @@ Cloudflare Workers, browsers, Deno, Bun, and Node.
 import { decodeTraces, exportResponse, protobufContentType } from "@bagatka/otlp"
 import { Effect } from "effect"
 
-const receiveTraces = Effect.fn("receiveTraces")(function* (body: Uint8Array) {
-  const resources = yield* decodeTraces(body) // the bytes of POST /v1/traces, as many as you accept
-  for (const { resource, scopeSpans } of resources) {
-    const service = resource.attributes.get("service.name") // "notes-api"
-    for (const span of scopeSpans.flatMap((scope) => scope.spans)) {
-      // span.name "GET /api/notes/{id}", span.kind "server", span.status.code "error", and
-      // span.attributes.get("http.response.status_code") 500n: integers are bigints.
-    }
-  }
-  return yield* exportResponse() // all accepted; sent with the Content-Type protobufContentType
-})
+// What the receiver keeps of each span, in a store of your own.
+interface ReceivedSpan {
+  readonly service: string | undefined
+  readonly name: string
+  readonly durationNs: bigint
+  readonly failed: boolean
+}
+declare const keep: (spans: ReadonlyArray<ReceivedSpan>) => Effect.Effect<void>
+
+// POST /v1/traces: the body's bytes, whose size you have bounded, and the answer to send.
+const receiveTraces = Effect.fn("receiveTraces")(
+  function* (body: Uint8Array) {
+    const resources = yield* decodeTraces(body)
+    const spans = resources.flatMap(({ resource, scopeSpans }) => {
+      const service = resource.attributes.get("service.name") // "notes-api": attributes are maps
+      return scopeSpans
+        .flatMap((scope) => scope.spans)
+        .map((span) => ({
+          service: typeof service === "string" ? service : undefined,
+          name: span.name, // "GET /api/notes/{id}"
+          durationNs: span.endTimeUnixNano - span.startTimeUnixNano, // nanoseconds, as bigints
+          failed: span.status.code === "error",
+        }))
+    })
+    yield* keep(spans)
+    return { status: 200, contentType: protobufContentType, body: yield* exportResponse() }
+  },
+  // Not a trace export: a 400, which exporters don't send again. The reason says what is wrong and
+  // at which byte, such as "The message ends 10 bytes too early, at byte 6727".
+  Effect.catchTag("OtlpInvalid", (invalid) =>
+    Effect.logWarning(invalid.message).pipe(
+      Effect.as({ status: 400, contentType: protobufContentType, body: new Uint8Array(0) }),
+    ),
+  ),
+)
+// receiveTraces: (body: Uint8Array) => Effect<{ status: number; contentType: string; body: Uint8Array }>
 ```
 
-A body that isn't a trace export fails with `OtlpInvalid`, whose `reason` says what is wrong and at
-which byte, such as `The message ends 10 bytes too early, at byte 6727`: answer it with a 400, which
-exporters don't send again. `decodeLogs` reads log exports the same way, and `encodeTraces` and
-`encodeLogs` write such data back as an export, such as after removing secrets from it
-(`const body = yield* encodeLogs(logs)`): decoding what they write gives the same data back.
+`decodeLogs` reads log exports the same way, and `encodeTraces` and `encodeLogs` write such data
+back as an export, such as after removing secrets from it (`const body = yield* encodeLogs(logs)`):
+decoding what they write gives the same data back. Each of the four is a span of its own name, such
+as `decodeTraces`, in whatever tracer the host installs; a refused body ends its span as a failure,
+with its reason.
 
 ## Contract
 
@@ -94,7 +119,8 @@ lowercase hex, `TraceId` and `SpanId`; times are nanoseconds as `bigint`; attrib
   to 6 times: a Worker that accepts bodies of up to 4 MB stays far inside its 128 MB. A body that
   isn't a `Uint8Array`, from a JavaScript caller, is refused too. Data made by a program can be
   denser, such as a hundred empty resources in 400 bytes: it encodes, and decoding refuses it.
-- **Cost:** an export of 19,000 spans, 6.7 MB, decodes in about 85 ms and encodes in about 56 ms
-  (Bun on an M-series Mac); encoding writes into one buffer that grows as it fills.
+- **Cost:** an export of 19,000 spans, 6.7 MB, decodes in 59 ms and encodes in 48 ms on Bun 1.4,
+  96 and 93 ms on Node 26 (an M-series Mac); encoding writes into one buffer that grows as it fills. Its span adds
+  about a microsecond, nothing next to that.
 - **Tested on real exports,** captured from OpenTelemetry .NET 1.19.1 (`test/fixtures/`), including
   its padded length prefixes and flags.

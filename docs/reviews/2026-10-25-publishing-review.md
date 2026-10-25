@@ -194,3 +194,23 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
   sketch has its own); `RelativeAccuracy` and `QuantileSketchesDiffer` are new; `sketchOf` takes
   `{ relativeAccuracy }`; `mergeSketches` returns `Result<QuantileSketch, QuantileSketchesDiffer>`.
   No package here calls it.
+
+## `@bagatka/otlp`
+
+- **Contract confirmed.** Effect sends OTLP (`effect/observability`'s `Otlp`) but has no public
+  reader of it, so this package is what Effect doesn't have: the receiving side, and writing
+  decoded data back. Its one error, `OtlpInvalid`, is the exporter's to fix, and the caller answers
+  400.
+- **Spans, as every other package has them.** `decodeTraces`, `decodeLogs`, `encodeTraces` and
+  `encodeLogs` had none, though each is an operation a caller calls on a request body and takes
+  milliseconds; now each is `Effect.fn` with its own name, and a refused body ends its span as a
+  failure. Encoding also ran when it was called rather than when its effect ran; it runs inside its
+  span now. A test checks the names and outcomes, and fails on the old code.
+- **The README's example is a receiver.** It imported `protobufContentType` and never used it,
+  and read values it threw away. Now it decodes, keeps what it read, answers 200 with the export
+  response, and answers 400 to `OtlpInvalid`, logging its reason. Run from the installed tarball on
+  OpenTelemetry .NET's captured export: 19 spans, the first `notes-api`, `GET /api/notes/{id}`,
+  32,111,000 ns; the same body cut short, 400 with "The message ends 10 bytes too early, at byte 5".
+- **Its costs measured again** on 6.7 MB, 19,000 spans: Bun 59 ms to decode and 48 to encode, Node
+  96 and 93.
+

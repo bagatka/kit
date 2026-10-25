@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Cause, Effect, Exit } from "effect"
+import { Cause, Effect, Exit, Tracer } from "effect"
 import { Base64 } from "effect/encoding"
 
 import type { AnyValue, LogRecord, ResourceLogs } from "../src/index.ts"
@@ -178,6 +178,31 @@ describe("exportResponse", () => {
         const exit = yield* exportResponse({ rejected, errorMessage: "" }).pipe(Effect.exit)
         assert.isTrue(Exit.isFailure(exit) && Cause.hasDies(exit.cause))
       }
+    }),
+  )
+
+  it.effect("traces each decode and encode as a span of its own name, and a refused body as its failure", () =>
+    Effect.gen(function* () {
+      const spans: Array<Tracer.NativeSpan> = []
+      const tracer = Tracer.make({
+        span: (options) => {
+          const span = new Tracer.NativeSpan(options)
+          spans.push(span)
+          return span
+        },
+      })
+      const traced = Effect.gen(function* () {
+        yield* decodeTraces(yield* encodeTraces(everyFieldTraces))
+        yield* decodeLogs(yield* encodeLogs(everyFieldLogs))
+        yield* decodeTraces(Uint8Array.of(0x0a, 0x05)).pipe(Effect.ignore)
+      }).pipe(Effect.provideService(Tracer.Tracer, tracer))
+      yield* traced
+      assert.deepStrictEqual(
+        spans.map((span) => span.name),
+        ["encodeTraces", "decodeTraces", "encodeLogs", "decodeLogs", "decodeTraces"],
+      )
+      const outcomes = spans.map((span) => span.status._tag === "Ended" && Exit.isFailure(span.status.exit))
+      assert.deepStrictEqual(outcomes, [false, false, false, false, true])
     }),
   )
 })

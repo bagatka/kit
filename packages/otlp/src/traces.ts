@@ -337,24 +337,25 @@ const readResourceSpans = (reader: Reader): ResourceSpans => {
  * Fields OTLP added later are skipped, so newer exporters still decode. Takes time and memory linear
  * in the body, at most about 25 times its size, which it reads whole: the caller bounds its size.
  */
-export const decodeTraces = (body: Uint8Array): Effect.Effect<ReadonlyArray<ResourceSpans>, OtlpInvalid> =>
-  Effect.suspend(() => {
-    if (!(body instanceof Uint8Array)) {
-      return Effect.fail(new OtlpInvalid({ reason: "The body isn't bytes, a Uint8Array" }))
+export const decodeTraces = Effect.fn("decodeTraces")((
+  body: Uint8Array,
+): Effect.Effect<ReadonlyArray<ResourceSpans>, OtlpInvalid> => {
+  if (!(body instanceof Uint8Array)) {
+    return Effect.fail(new OtlpInvalid({ reason: "The body isn't bytes, a Uint8Array" }))
+  }
+  const reader = readerOf(body)
+  const resourceSpans: Array<ResourceSpans> = []
+  for (let tag = readTag(reader); tag !== undefined; tag = readTag(reader)) {
+    if (tag.field === 1 && tag.wireType === 2) {
+      resourceSpans.push(readMessage(reader, readResourceSpans))
+    } else {
+      skip(reader, tag.wireType)
     }
-    const reader = readerOf(body)
-    const resourceSpans: Array<ResourceSpans> = []
-    for (let tag = readTag(reader); tag !== undefined; tag = readTag(reader)) {
-      if (tag.field === 1 && tag.wireType === 2) {
-        resourceSpans.push(readMessage(reader, readResourceSpans))
-      } else {
-        skip(reader, tag.wireType)
-      }
-    }
-    return reader.problem === undefined
-      ? Effect.succeed(resourceSpans)
-      : Effect.fail(new OtlpInvalid({ reason: reader.problem }))
-  })
+  }
+  return reader.problem === undefined
+    ? Effect.succeed(resourceSpans)
+    : Effect.fail(new OtlpInvalid({ reason: reader.problem }))
+})
 
 // The number trace.proto gives `name`; one it doesn't name, which only a cast or JavaScript can
 // pass, is a problem, as decoding would refuse what was written.
@@ -433,7 +434,9 @@ const writeSpan = (writer: Writer, span: Span): void =>
  * values nested at most 16 levels; anything else, which no decoded export holds, is a bug and dies,
  * saying which, rather than being written changed.
  */
-export const encodeTraces = (resourceSpans: ReadonlyArray<ResourceSpans>): Effect.Effect<Uint8Array> => {
+export const encodeTraces = Effect.fn("encodeTraces")((
+  resourceSpans: ReadonlyArray<ResourceSpans>,
+): Effect.Effect<Uint8Array> => {
   const writer = writerOf()
   for (const resource of resourceSpans) {
     writeMessage(writer, 1, (inner) => {
@@ -453,4 +456,4 @@ export const encodeTraces = (resourceSpans: ReadonlyArray<ResourceSpans>): Effec
   return writer.problem === undefined
     ? Effect.succeed(writtenOf(writer))
     : Effect.die(`The traces can't be written as OTLP: ${writer.problem}`)
-}
+})
