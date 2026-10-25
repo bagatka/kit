@@ -129,6 +129,15 @@ describe("quantile sketches", () => {
       const estimate = read(sketch, quantile)
       assert.isTrue(Number.isFinite(estimate) && isWithinAccuracy(estimate, exact), `${quantile}: ${estimate}`)
     }
+    // At every accuracy, each value from 10% below the largest finite one up to it, alone in a
+    // sketch: its median is itself.
+    for (const accuracy of accuracies) {
+      for (let step = 0; step <= 1000; step += 1) {
+        const value = Number.MAX_VALUE * (1 - step / 10_000)
+        const estimate = read(sketched([value], accuracy), 0.5)
+        assert.isTrue(isWithinAccuracy(estimate, value, accuracy), `${accuracy}: ${value} read as ${estimate}`)
+      }
+    }
   })
 
   it.effect("decode from what they encode to, and refuse a stored sketch they can't have made", () =>

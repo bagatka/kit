@@ -19,7 +19,7 @@ const smallest = 1e-9
 // last-digit difference between runtimes' logarithms never puts a value outside them.
 interface Buckets {
   readonly logGamma: number
-  readonly scale: number
+  readonly logScale: number
   readonly lowest: number
   readonly highest: number
 }
@@ -29,7 +29,7 @@ const bucketsOf = (accuracy: RelativeAccuracy): Buckets => {
   const logGamma = Math.log(gamma)
   return {
     logGamma,
-    scale: 2 / (gamma + 1),
+    logScale: Math.log(2 / (gamma + 1)),
     lowest: Math.ceil(Math.log(smallest) / logGamma) - 1,
     highest: Math.ceil(Math.log(Number.MAX_VALUE) / logGamma) + 1,
   }
@@ -50,9 +50,10 @@ const bucketsFor = (accuracy: RelativeAccuracy): Buckets => {
 const bucketOf = (value: number, { logGamma }: Buckets): number => Math.ceil(Math.log(value) / logGamma)
 
 // The representative value of `bucket`, kept finite: past the largest finite value, that value is
-// as close to every value of the bucket as the representative is.
-const representativeOf = (bucket: number, { logGamma, scale }: Buckets): number =>
-  Math.min(Math.exp(bucket * logGamma) * scale, Number.MAX_VALUE)
+// closer to every value of the bucket than the representative is. The scale is in the exponent, since
+// γ^i alone can pass the largest finite value when the representative doesn't.
+const representativeOf = (bucket: number, { logGamma, logScale }: Buckets): number =>
+  Math.min(Math.exp(bucket * logGamma + logScale), Number.MAX_VALUE)
 
 // The most buckets a sketch of any accuracy can have: the finest's.
 const mostBuckets = Math.max(...[...buckets.values()].map(({ lowest, highest }) => highest - lowest + 1))
