@@ -137,3 +137,20 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
   Apple's platforms) passes in and posts back, each client's origin, a browser snippet, and a Swift
   one; the TypeScript type-checks against the installed tarball, and the Swift compiles for iOS
   and macOS in Swift 6 with warnings as errors.
+
+## `@bagatka/scrub`
+
+- **Contract confirmed.** Two plain functions that never fail, so no Effect, no span and no error
+  type: it runs on every log line, at about 1 µs a line, where a span would double the cost, and
+  a span from the code that cleans telemetry would be telemetry about telemetry. PATTERNS.md,
+  "Calling a service, and what it shows", is about calling services, which `scrub` never does.
+- **The README's examples give what they say,** run from the installed tarball on Node 26, and
+  type-check with no platform's types. Its costs were measured again on an M-series Mac: on Node
+  4.4 ms a megabyte (15.8 with an `@` on every line) and 1.4 µs a 200-character line; on Bun 2.9,
+  7.2 and 0.8.
+- **One line of the list was wrong.** A URL's password went "up to the `@` that starts the host",
+  but it goes to the first `@`, so `user:pa@ss@host` leaves `ss`. URLs must write that `@` as `%40`,
+  which is removed whole; the list now says what happens, under "Does not recognize".
+- **Open, for the founder:** npm tokens (`npm_`) and GitLab's (`glpat-`) aren't on the list. The
+  list grows with a product's need, not a review's imagination: add them when a product's logs can
+  hold them.

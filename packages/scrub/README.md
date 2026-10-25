@@ -58,8 +58,8 @@ written another way passes through.
   `id_token`, `code`, `password`, `secret`, `client_secret`, `api_key`, `key`, `sig`, `signature`,
   `session`, `X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-Security-Token`, also in a URL encoded
   into another (`%3Ftoken%3D`).
-- **The password in `scheme://user:password@host`,** up to the `@` that starts the host; never a
-  port (`localhost:3000/users/@me`).
+- **The password in `scheme://user:password@host`,** up to the first `@` after it; never a port
+  (`localhost:3000/users/@me`).
 - **Values of named secrets:** `name=value`, `name: value` and JSON's `"name": "value"` (also inside
   a JSON string, `\"name\":\"value\"`), where the name ends with a word `isSecretName` knows:
   `password`, `passwd`, `pwd`, `passphrase`, `secret`, `credentials`, `jwt`, `signature`,
@@ -85,7 +85,8 @@ Everything else, among it: Go's `\u0026` escapes and text escaped more than once
 header as a whole (its `Signature=` goes as a named secret); `curl -u user:password`; cookies outside
 header lines; percent-encoded parameter names; other card groupings and separators (no-break space,
 `+`, `%20`, 4-6-5); emails with letters outside ASCII; keys of services not on the list; Azure's
-`AccountKey` as such; `password: =` and `password => ...`; names, postal addresses, phone numbers,
+`AccountKey` as such; `password: =` and `password => ...`; what follows a bare `@` inside a URL's
+password (`user:pa@ss@host` leaves `ss`; URLs write it `%40`, which is removed); names, postal addresses, phone numbers,
 and passwords in plain prose. Callers check `isSecretName` for named values, which catches more
 than patterns.
 

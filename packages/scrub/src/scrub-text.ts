@@ -65,7 +65,7 @@ const ownKeys = (prefixes: ReadonlyArray<string> | undefined): ReadonlyArray<Reg
   return [pattern]
 }
 
-// The password in `scheme://user:password@host`, up to the `@` that starts the host; never a port
+// The password in `scheme://user:password@host`, up to the first `@` after it; never a port
 // (`localhost:3000/users/@me`), nor the `:` of another `://`.
 const urlPassword =
   /(?<=[A-Za-z0-9])(:\/\/[^\s:/?#@"']*:(?!\/\/))(?![0-9]{1,5}(?:[/?#\s"']|$))[^\s?#@"'\\]{1,128}(?=@)/g
