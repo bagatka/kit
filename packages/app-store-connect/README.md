@@ -20,13 +20,16 @@ provides: Cloudflare Workers, Deno, Bun, and Node.
 
 ```ts
 import { AppStoreConnect } from "@bagatka/app-store-connect"
-import { Effect, Option, Redacted } from "effect"
+import { Effect, Layer, Option, Redacted } from "effect"
+import { FetchHttpClient } from "effect/http"
+
+declare const p8Text: string // the text of an App Store Connect API key's .p8 file
 
 // In the host, once: fails with AppStoreConnectCredentialsInvalid if the key or IDs can't sign.
 const AppStoreConnectLive = AppStoreConnect.layer(
   { key: Redacted.make(p8Text), keyId: "2X9R4HXF34", issuerId: "57246542-96fe-1a63-e053-0824d011072a" },
   crypto.subtle,
-)
+).pipe(Layer.provide(FetchHttpClient.layer))
 
 const program = Effect.gen(function* () {
   const appStoreConnect = yield* AppStoreConnect
@@ -40,12 +43,18 @@ const program = Effect.gen(function* () {
   // [{ platform: "IOS", version: "2.4.0", state: "READY_FOR_DISTRIBUTION", buildNumber: "413",
   //    phasedRelease: { state: "ACTIVE", currentDay: 3 }, … }]
   return versions
-})
+}).pipe(Effect.provide(AppStoreConnectLive))
 ```
 
 Publishing a version, with a key whose role is App Manager:
 
 ```ts
+import type { AppId, BuildId } from "@bagatka/app-store-connect"
+import { AppStoreConnect } from "@bagatka/app-store-connect"
+import { Effect } from "effect"
+
+declare const notesIn: (locale: string) => string // the release's notes, in each locale
+
 const publish = (appId: AppId, buildId: BuildId) =>
   Effect.gen(function* () {
     const appStoreConnect = yield* AppStoreConnect
@@ -61,14 +70,27 @@ const publish = (appId: AppId, buildId: BuildId) =>
     // { versionId: "f5b10fc0-…", version: "2.5.0", state: "PREPARE_FOR_SUBMISSION" }
     return yield* appStoreConnect.submitForReview(appId, "IOS", prepared.versionId)
     // { submissionId: "…", state: "WAITING_FOR_REVIEW" }; once approved, releaseVersion(prepared.versionId)
-  })
+  }).pipe(
+    Effect.catchTags({
+      // This release can't go yet: a build still processing, a text over 4,000 characters.
+      AppStoreConnectRefused: (refused) => Effect.logWarning(refused.message),
+      // Someone on the team must act; no release goes until they do.
+      AppStoreConnectCredentialsRefused: (refused) => Effect.logError(refused.message),
+      AppStoreConnectForbidden: (forbidden) => Effect.logError(forbidden.message),
+    }),
+  )
 ```
 
-A key that is wrong or revoked, or whose role can't do this, fails with `AppStoreConnectRefused`
-(401 or 403), as does a change Apple won't take now (409), with Apple's code and detail: a build
-still processing, a text over 4,000 characters, a version not pending release. Asking the same again
-won't help until what it names changes. No answer in 15 seconds, too many requests (429), or a server
-error fail with `AppStoreConnectUnavailable`: ask again later. Every method is safe to call again.
+Each failure says who acts, with Apple's code and detail in `reason`:
+
+| Error | Apple answered | What to do |
+|---|---|---|
+| `AppStoreConnectRefused` | 409: a build still processing, a text over 4,000 characters, a version not pending release | Ask again once what it names has changed |
+| `AppStoreConnectCredentialsRefused` | 401, a token signed again too: the key was revoked, or the key or issuer ID isn't its | Fix the credentials: every request fails until then |
+| `AppStoreConnectForbidden` | 403: the key's role can't do this, or the team owes an agreement (`FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED`) | Change the key's role, or have the Account Holder accept the agreement |
+| `AppStoreConnectUnavailable` | nothing in 15 seconds, too many requests (429), or a server error | Ask again later |
+
+Every method is safe to call again.
 
 ## Contract
 
@@ -105,7 +127,8 @@ every app; an individual key, its user's.
   permissions](https://developer.apple.com/support/roles/) give "Submit apps" and "Manage TestFlight
   builds" to these alone, and its help asks the same for choosing a build, releasing a version, a
   phased release, and test information. Marketing may make versions and edit their details, but not
-  submit them, so it isn't enough.
+  submit them, so it isn't enough. A key whose role can't write fails each write with
+  `AppStoreConnectForbidden`, and reads as before.
 
 A product that reads often and writes rarely can hold two clients, one per key, each with `make`.
 
@@ -119,7 +142,8 @@ A product that reads often and writes rarely can hold two clients, one per key, 
 - **One token for 15 minutes, signed once.** The key is imported once. Apple takes a token for at
   most 20 minutes, so each is signed for 20 and kept for 15, and none is sent about to expire;
   requests sent together share one, signed while the others wait. A token Apple refuses (401) is
-  signed again, once, and the request sent once more; a second refusal is `AppStoreConnectRefused`.
+  signed again, once, and the request sent once more; a second refusal is
+  `AppStoreConnectCredentialsRefused`.
   Each client from `make` has its own token.
 - **Related resources come in the same answer.** Builds are read with `include` of their prerelease
   version (the marketing version) and beta detail (TestFlight states), versions with their build and

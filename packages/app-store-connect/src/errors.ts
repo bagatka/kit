@@ -15,19 +15,48 @@ export class AppStoreConnectCredentialsInvalid extends Schema.TaggedError<AppSto
 }
 
 /**
- * App Store Connect refused the request, and sending the same again won't help until what `reason`
- * names changes. 401 or 403: the key is wrong or revoked, or its role doesn't allow this (writing
- * needs App Manager). 409: Apple won't take the change in the current state, such as a build still
+ * App Store Connect refused the key's token (401), a freshly signed one too: the key was revoked,
+ * or the key ID or issuer ID isn't the key's. Every request fails so until the settings change, so
+ * it is never about the request: fix the credentials. `reason` is Apple's error code and detail.
+ */
+export class AppStoreConnectCredentialsRefused extends Schema.TaggedError<AppStoreConnectCredentialsRefused>()(
+  "AppStoreConnectCredentialsRefused",
+  { reason: Schema.String },
+) {
+  override get message(): string {
+    return `App Store Connect refused the credentials: ${this.reason}`
+  }
+}
+
+/**
+ * App Store Connect took the key but won't let it do this (403): its role doesn't allow it
+ * (writing needs App Manager), or the team has a required agreement to accept
+ * (`FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED`, which forbids every request until the
+ * Account Holder accepts it in App Store Connect). Someone on the team must change the key's role
+ * or accept the agreement; other requests of the key may still work. `reason` is Apple's error
+ * code and detail.
+ */
+export class AppStoreConnectForbidden extends Schema.TaggedError<AppStoreConnectForbidden>()(
+  "AppStoreConnectForbidden",
+  { reason: Schema.String },
+) {
+  override get message(): string {
+    return `App Store Connect forbade the request: ${this.reason}`
+  }
+}
+
+/**
+ * App Store Connect won't take the change in the current state (409), such as a build still
  * processing, a text over its limit, or a version that isn't pending release; or this client won't
- * make it, such as pausing a version without a phased release. `reason` is Apple's error code and
- * detail, or says what was refused.
+ * make it, such as pausing a version without a phased release. Asking the same again won't help
+ * until what `reason` names changes. `reason` is Apple's error code and detail, or says what was
+ * refused.
  */
 export class AppStoreConnectRefused extends Schema.TaggedError<AppStoreConnectRefused>()("AppStoreConnectRefused", {
-  status: Schema.Int,
   reason: Schema.String,
 }) {
   override get message(): string {
-    return `App Store Connect refused (${this.status}): ${this.reason}`
+    return `App Store Connect refused the change: ${this.reason}`
   }
 }
 
@@ -44,3 +73,10 @@ export class AppStoreConnectUnavailable extends Schema.TaggedError<AppStoreConne
     return `App Store Connect is unavailable: ${this.reason}`
   }
 }
+
+/** Every way a request of the client can fail. */
+export type Failure =
+  | AppStoreConnectCredentialsRefused
+  | AppStoreConnectForbidden
+  | AppStoreConnectRefused
+  | AppStoreConnectUnavailable

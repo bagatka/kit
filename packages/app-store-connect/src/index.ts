@@ -6,7 +6,13 @@
  */
 export type { AppStoreConnectCredentials, AppStoreConnectCrypto } from "./apple-api.ts"
 export { AppStoreConnect } from "./app-store-connect.ts"
-export { AppStoreConnectCredentialsInvalid, AppStoreConnectRefused, AppStoreConnectUnavailable } from "./errors.ts"
+export {
+  AppStoreConnectCredentialsInvalid,
+  AppStoreConnectCredentialsRefused,
+  AppStoreConnectForbidden,
+  AppStoreConnectRefused,
+  AppStoreConnectUnavailable,
+} from "./errors.ts"
 export { AppId, AppStoreVersionId, BuildId, Platform, ReviewSubmissionId } from "./ids.ts"
 export type {
   App,

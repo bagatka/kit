@@ -355,7 +355,6 @@ export const publishing = (api: AppleApi) => {
     const phased = yield* versionPhasedReleaseOf(document)
     if (Option.isNone(phased)) {
       return yield* new AppStoreConnectRefused({
-        status: 409,
         reason: `App Store version ${versionId} has no phased release`,
       })
     }

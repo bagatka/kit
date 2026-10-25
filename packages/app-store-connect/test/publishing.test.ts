@@ -3,7 +3,13 @@ import { Cause, DateTime, Effect, Exit, Layer, Option, Predicate, Result, Schema
 import type { HttpClientRequest } from "effect/http"
 import { HttpClient, HttpClientResponse } from "effect/http"
 
-import type { AppStoreConnectRefused, AppStoreConnectUnavailable, VersionToSubmit } from "../src/index.ts"
+import type {
+  AppStoreConnectCredentialsRefused,
+  AppStoreConnectForbidden,
+  AppStoreConnectRefused,
+  AppStoreConnectUnavailable,
+  VersionToSubmit,
+} from "../src/index.ts"
 import { AppId, AppStoreConnect, AppStoreVersionId, BuildId } from "../src/index.ts"
 import { credentials, newKey, subtle } from "./signing-key.ts"
 
@@ -103,10 +109,13 @@ const writes = (fake: Fake) =>
     .map((asked) => ({ method: asked.method, path: asked.path, body: asked.body }))
 
 // A failure's fields, to compare with what Apple's answer should make of it.
-const plain = (failure: AppStoreConnectRefused | AppStoreConnectUnavailable) =>
-  failure._tag === "AppStoreConnectRefused"
-    ? { _tag: failure._tag, status: failure.status, reason: failure.reason }
-    : { _tag: failure._tag, reason: failure.reason }
+type Failure =
+  | AppStoreConnectCredentialsRefused
+  | AppStoreConnectForbidden
+  | AppStoreConnectRefused
+  | AppStoreConnectUnavailable
+
+const plain = (failure: Failure) => ({ _tag: failure._tag, reason: failure.reason })
 
 // What an effect's defect says, when it is text, as this client's are.
 const defectOf = <A, E>(exit: Exit.Exit<A, E>) => {
@@ -586,7 +595,6 @@ describe("prepareVersion", () => {
 
       assert.deepStrictEqual(plain(failure), {
         _tag: "AppStoreConnectRefused",
-        status: 409,
         reason:
           "ENTITY_ERROR.RELATIONSHIP.INVALID: The build 413 is still processing and can't be added to a version yet.",
       })
@@ -876,7 +884,6 @@ describe("releaseVersion", () => {
       const failure = yield* withClient(fake, (client) => client.releaseVersion(editable).pipe(Effect.flip))
       assert.deepStrictEqual(plain(failure), {
         _tag: "AppStoreConnectRefused",
-        status: 409,
         reason: "STATE_ERROR: The App Store version is not pending developer release.",
       })
     }),
@@ -950,7 +957,6 @@ describe("setPhasedRelease", () => {
       for (const failure of failures) {
         assert.deepStrictEqual(plain(failure), {
           _tag: "AppStoreConnectRefused",
-          status: 409,
           reason: `App Store version ${released} has no phased release`,
         })
       }
@@ -1031,7 +1037,6 @@ describe("setWhatToTest", () => {
       )
       assert.deepStrictEqual(plain(failure), {
         _tag: "AppStoreConnectRefused",
-        status: 409,
         reason:
           "ENTITY_ERROR.ATTRIBUTE.INVALID.TOO_LONG: What to Test is longer than 4000 characters.; ENTITY_ERROR.ATTRIBUTE.INVALID: What to Test holds characters it can't.",
       })
@@ -1241,9 +1246,7 @@ describe("an answer without what a write needs", () => {
       }
       const cases: ReadonlyArray<{
         readonly answers: Readonly<Record<string, ReadonlyArray<Answer>>>
-        readonly write: (
-          client: AppStoreConnect["Service"],
-        ) => Effect.Effect<unknown, AppStoreConnectRefused | AppStoreConnectUnavailable>
+        readonly write: (client: AppStoreConnect["Service"]) => Effect.Effect<unknown, Failure>
       }> = [
         // A version without its version string.
         {

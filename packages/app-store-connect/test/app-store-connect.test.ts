@@ -4,7 +4,12 @@ import { Base64Url } from "effect/encoding"
 import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http"
 import { TestClock } from "effect/testing"
 
-import type { AppStoreConnectRefused, AppStoreConnectUnavailable } from "../src/index.ts"
+import type {
+  AppStoreConnectCredentialsRefused,
+  AppStoreConnectForbidden,
+  AppStoreConnectRefused,
+  AppStoreConnectUnavailable,
+} from "../src/index.ts"
 import { AppId, AppStoreConnect, AppStoreVersionId, BuildId, Platform } from "../src/index.ts"
 import { credentials, newKey, subtle } from "./signing-key.ts"
 
@@ -323,10 +328,13 @@ const defectOf = <A, E>(exit: Exit.Exit<A, E>) => {
 }
 
 // A failure's fields, to compare with what Apple's answer should make of it.
-const plain = (failure: AppStoreConnectRefused | AppStoreConnectUnavailable) =>
-  failure._tag === "AppStoreConnectRefused"
-    ? { _tag: failure._tag, status: failure.status, reason: failure.reason }
-    : { _tag: failure._tag, reason: failure.reason }
+type Failure =
+  | AppStoreConnectCredentialsRefused
+  | AppStoreConnectForbidden
+  | AppStoreConnectRefused
+  | AppStoreConnectUnavailable
+
+const plain = (failure: Failure) => ({ _tag: failure._tag, reason: failure.reason })
 
 // Version 2.5.0, being prepared, with these relationships.
 const preparing = (
@@ -539,7 +547,7 @@ describe("AppStoreConnect", () => {
     }),
   )
 
-  it.effect("renews a token Apple refuses, once, and is refused when Apple refuses the new one too", () =>
+  it.effect("renews a token Apple refuses, once, and fails when Apple refuses the new one too", () =>
     Effect.gen(function* () {
       const key = yield* newKey
       const fake = fakeAppStoreConnect([notAuthorized, ok(appsDocument([notes])), notAuthorized, notAuthorized])
@@ -551,8 +559,7 @@ describe("AppStoreConnect", () => {
 
       assert.isTrue(Option.isSome(answers[0]))
       assert.deepStrictEqual(plain(answers[1]), {
-        _tag: "AppStoreConnectRefused",
-        status: 401,
+        _tag: "AppStoreConnectCredentialsRefused",
         reason:
           "NOT_AUTHORIZED: Provide a properly configured and signed bearer token, and make sure that it has not expired.",
       })
@@ -563,11 +570,16 @@ describe("AppStoreConnect", () => {
     }),
   )
 
-  it.effect("is refused for a key whose role can't read, and unavailable when Apple is busy, down, or silent", () =>
+  it.effect("is forbidden a role or an agreement short, and unavailable when Apple is busy, down, or silent", () =>
     Effect.gen(function* () {
       const key = yield* newKey
       const fake = fakeAppStoreConnect([
         appleError(403, "FORBIDDEN_ERROR", "The API key in use does not allow this request"),
+        appleError(
+          403,
+          "FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED",
+          "This request requires an in-effect agreement that has not been signed or has expired.",
+        ),
         appleError(429, "RATE_LIMIT_EXCEEDED", "We've received too many requests for this API."),
         { status: 503, text: "<html><body>Service Unavailable</body></html>" },
         "no answer",
@@ -583,23 +595,28 @@ describe("AppStoreConnect", () => {
           readBuilds(10).pipe(Effect.flip),
           readBuilds(10).pipe(Effect.flip),
           readBuilds(10).pipe(Effect.flip),
+          readBuilds(10).pipe(Effect.flip),
         ]),
       )
       assert.deepStrictEqual(plain(failures[0]), {
-        _tag: "AppStoreConnectRefused",
-        status: 403,
+        _tag: "AppStoreConnectForbidden",
         reason: "FORBIDDEN_ERROR: The API key in use does not allow this request",
       })
       assert.deepStrictEqual(plain(failures[1]), {
+        _tag: "AppStoreConnectForbidden",
+        reason:
+          "FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED: This request requires an in-effect agreement that has not been signed or has expired.",
+      })
+      assert.deepStrictEqual(plain(failures[2]), {
         _tag: "AppStoreConnectUnavailable",
         reason: "RATE_LIMIT_EXCEEDED: We've received too many requests for this API.",
       })
-      assert.deepStrictEqual(plain(failures[2]), { _tag: "AppStoreConnectUnavailable", reason: "HTTP 503" })
-      assert.deepStrictEqual(plain(failures[3]), {
+      assert.deepStrictEqual(plain(failures[3]), { _tag: "AppStoreConnectUnavailable", reason: "HTTP 503" })
+      assert.deepStrictEqual(plain(failures[4]), {
         _tag: "AppStoreConnectUnavailable",
         reason: "App Store Connect couldn't be reached",
       })
-      assert.deepStrictEqual(plain(failures[4]), { _tag: "AppStoreConnectUnavailable", reason: "HTTP 500" })
+      assert.deepStrictEqual(plain(failures[5]), { _tag: "AppStoreConnectUnavailable", reason: "HTTP 500" })
       // What a log shows carries the reason.
       for (const failure of failures) {
         assert.include(failure.message, failure.reason)
@@ -765,7 +782,7 @@ describe("AppStoreConnect", () => {
       })
       const preparingInfo = { state: "PREPARE_FOR_SUBMISSION" }
       const cases: ReadonlyArray<{
-        readonly read: Effect.Effect<unknown, AppStoreConnectRefused | AppStoreConnectUnavailable, AppStoreConnect>
+        readonly read: Effect.Effect<unknown, Failure, AppStoreConnect>
         readonly answers: Array<Answer>
         readonly says: ReadonlyArray<string>
       }> = [

@@ -4,7 +4,7 @@ import type { HttpClient } from "effect/http"
 
 import type { AppStoreConnectCredentials, AppStoreConnectCrypto } from "./apple-api.ts"
 import { appleApi, decoded, pageSize } from "./apple-api.ts"
-import type { AppStoreConnectCredentialsInvalid, AppStoreConnectRefused, AppStoreConnectUnavailable } from "./errors.ts"
+import type { AppStoreConnectCredentialsInvalid, Failure } from "./errors.ts"
 import type { AppId, AppStoreVersionId, BuildId, Platform } from "./ids.ts"
 import { publishing } from "./publishing.ts"
 import type {
@@ -28,8 +28,6 @@ import {
 } from "./resources.ts"
 
 const latestCreatedFirst = Order.flip(Order.mapInput(DateTime.Order, (version: AppStoreVersion) => version.createdAt))
-
-type Failure = AppStoreConnectRefused | AppStoreConnectUnavailable
 
 /**
  * An app's builds, App Store versions, and review submissions in App Store Connect, through its API

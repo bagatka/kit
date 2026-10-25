@@ -4,7 +4,14 @@ import type { Redacted } from "effect"
 import { Clock, Duration, Effect, Option, Schema, SynchronizedRef } from "effect"
 import { HttpClient, HttpClientRequest } from "effect/http"
 
-import { AppStoreConnectCredentialsInvalid, AppStoreConnectRefused, AppStoreConnectUnavailable } from "./errors.ts"
+import type { Failure } from "./errors.ts"
+import {
+  AppStoreConnectCredentialsInvalid,
+  AppStoreConnectCredentialsRefused,
+  AppStoreConnectForbidden,
+  AppStoreConnectRefused,
+  AppStoreConnectUnavailable,
+} from "./errors.ts"
 
 // App Store Connect's API as every method asks it: with a token of the key's, each request
 // answered within 15 seconds, and what each status Apple answers with means.
@@ -34,25 +41,18 @@ export type UrlParams = Readonly<Record<string, string | number>>
 /** App Store Connect's API, asked with one key's tokens. Paths are under `https://api.appstoreconnect.apple.com`, their IDs already encoded. */
 export interface AppleApi {
   /** The text of Apple's answer to `GET path`. */
-  readonly get: (
-    path: string,
-    urlParams: UrlParams,
-  ) => Effect.Effect<string, AppStoreConnectRefused | AppStoreConnectUnavailable>
+  readonly get: (path: string, urlParams: UrlParams) => Effect.Effect<string, Failure>
   /**
    * The text of each page of `GET path`, from the first to the last its `links.next` names: one
    * request per page, at most 10. `what` names the answer in a defect.
    */
-  readonly pages: (
-    path: string,
-    urlParams: UrlParams,
-    what: string,
-  ) => Effect.Effect<ReadonlyArray<string>, AppStoreConnectRefused | AppStoreConnectUnavailable>
+  readonly pages: (path: string, urlParams: UrlParams, what: string) => Effect.Effect<ReadonlyArray<string>, Failure>
   /** Sends a write, with `body` as JSON, and the text of Apple's answer: empty for a 204. */
   readonly send: (
     method: "POST" | "PATCH" | "DELETE",
     path: string,
     body?: Schema.JsonObject,
-  ) => Effect.Effect<string, AppStoreConnectRefused | AppStoreConnectUnavailable>
+  ) => Effect.Effect<string, Failure>
 }
 
 const api = "https://api.appstoreconnect.apple.com"
@@ -165,9 +165,11 @@ export const appleApi = Effect.fn("AppStoreConnect.api")(function* (
     request: HttpClientRequest.HttpClientRequest,
     what: string,
     pagesBefore: number,
-  ) => Effect.Effect<ReadonlyArray<string>, AppStoreConnectRefused | AppStoreConnectUnavailable> = Effect.fn(
-    "AppStoreConnect.pagesFrom",
-  )(function* (request: HttpClientRequest.HttpClientRequest, what: string, pagesBefore: number) {
+  ) => Effect.Effect<ReadonlyArray<string>, Failure> = Effect.fn("AppStoreConnect.pagesFrom")(function* (
+    request: HttpClientRequest.HttpClientRequest,
+    what: string,
+    pagesBefore: number,
+  ) {
     // Not handled: a listing of more than 2,000 resources, such as an app with that many App Store
     // versions; it dies here. Reading it would take more pages, each one more request.
     if (pagesBefore === mostPages) {
@@ -235,8 +237,15 @@ const textOf = Effect.fnUntraced(function* (
     Effect.map((body) => body.errors.map((error) => `${error.code}: ${error.detail}`).join("; ")),
     Effect.orElseSucceed(() => `HTTP ${answer.status}`),
   )
-  if (answer.status === 401 || answer.status === 403 || answer.status === 409) {
-    return yield* new AppStoreConnectRefused({ status: answer.status, reason })
+  // A 401 here is the second, after a token signed again: the credentials, not the token.
+  if (answer.status === 401) {
+    return yield* new AppStoreConnectCredentialsRefused({ reason })
+  }
+  if (answer.status === 403) {
+    return yield* new AppStoreConnectForbidden({ reason })
+  }
+  if (answer.status === 409) {
+    return yield* new AppStoreConnectRefused({ reason })
   }
   if (answer.status === 429 || answer.status >= 500) {
     return yield* new AppStoreConnectUnavailable({ reason })

@@ -35,3 +35,24 @@ published version, a change to it is a new version (PATTERNS.md, "Versions").
   Checked by type-checking it against the installed tarball, and by sending to APNs's sandbox from
   Node 26 with a made-up key, which APNs answered `InvalidProviderToken`: now
   `ApnsCredentialsRefused`.
+
+## `@bagatka/app-store-connect`
+
+- **Contract confirmed, with its errors split by who acts.** `AppStoreConnectRefused` held Apple's
+  401, 403 and 409 alike, told apart only by `status`: a revoked key read like a build still
+  processing, though one stops every release until someone fixes it and the other only this one.
+  Now:
+  - `AppStoreConnectCredentialsRefused`: 401, a token signed again too; fix the credentials.
+  - `AppStoreConnectForbidden`: 403, the key's role can't do this, or the team owes an agreement
+    (`FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED`, which forbids every request). Its own
+    error, not the 401's: a Developer key's reads still work while its writes are forbidden.
+  - `AppStoreConnectRefused`: 409 alone, a change Apple won't take now; its `status` is gone.
+  - `AppStoreConnectUnavailable` is unchanged, as in `apns`.
+- **The README's examples compile,** with what a stranger must add (an `HttpClient`, the ID types'
+  imports), and a table of which error asks whom to act. Checked by type-checking both against the
+  installed tarball, and against Apple's API from Node 26 with a made-up key, which Apple answered
+  `NOT_AUTHORIZED` twice: now `AppStoreConnectCredentialsRefused`.
+- **Read, and left as they are:** the writes read first and change only what differs, so calling
+  one again after an outage repeats nothing; IDs in paths, and in Apple's answers, have Apple's
+  shape; the token goes only to Apple's API. Reads return Apple's states and platforms as strings,
+  as Apple names them, as decided in the second review.
