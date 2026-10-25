@@ -16,27 +16,36 @@ too. It runs wherever Web Crypto does: Cloudflare Workers, browsers, Deno, Bun, 
 
 ```ts
 import { importSigningKey, signJwt } from "@bagatka/jwt"
-import { Effect, Redacted } from "effect"
+import { Clock, Effect, Redacted } from "effect"
+
+declare const p8Text: string // the text of an App Store Connect API key's .p8 file
+declare const issuerId: string
 
 const program = Effect.gen(function* () {
   // Once, when the key is read: importing is the slow part.
   const key = yield* importSigningKey(crypto.subtle, "ES256", Redacted.make(p8Text))
 
   // As often as needed.
+  const iat = Math.floor((yield* Clock.currentTimeMillis) / 1000)
   const token = yield* signJwt(
     key,
     { kid: "2X9R4HXF34", typ: "JWT" },
-    { iss: issuerId, iat: 1792576800, exp: 1792578000, aud: "appstoreconnect-v1" },
+    { iss: issuerId, iat, exp: iat + 20 * 60, aud: "appstoreconnect-v1" },
   )
   // "eyJhbGciOiJFUzI1NiIsImtpZCI6IjJYOVI0SFhGMzQiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOi….<86 characters>"
-})
+  return token
+}).pipe(
+  // The key is wrong, and importing it again won't help: report it.
+  Effect.tapError((error) => Effect.logError(error.message)),
+)
+// program: Effect<string, InvalidSigningKey>
 ```
 
 A key that can't sign with the algorithm asked for (text that isn't base64, two keys in one text,
 an RSA key for ES256, a key on another curve, an encrypted key, an RSA key under 2048 bits) fails
-with `InvalidSigningKey`, whose `reason`, and `message`, say which, never with the key in it.
-Importing it again won't help: report the key. Passing something that isn't `crypto.subtle` is a
-bug, and dies.
+with `InvalidSigningKey`, whose `reason`, and `message`, say which, never with the key in it:
+`The ES256 key was refused: The PEM block is labelled RSA PRIVATE KEY, not a private key ES256 can
+sign with`. Passing something that isn't `crypto.subtle` is a bug, and dies.
 
 ## Contract
 
