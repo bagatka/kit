@@ -1,23 +1,25 @@
-# Publishes the packages, packages/*, to npm as @bagatka/<name>: on every push to main that changes
+# Stages the packages, packages/*, on npm as @bagatka/<name>: on every push to main that changes
 # packages/**, or when run by hand on main (`gh workflow run publish.yml --ref main`), each one
 # whose name@version npm doesn't have yet, dependencies first, with provenance (PATTERNS.md,
-# "Publishing"). npm never takes a version twice, so a change reaches npm only with a new version.
+# "Publishing"). A staged version is public only once the founder approves it with 2FA, on
+# npmjs.com's "Staged Packages" or with `npm stage approve <id>`. npm never takes a version twice,
+# so a change reaches npm only with a new version.
 #
 # Two jobs, so nothing that installs or runs dependencies can publish:
 # - `build` installs, checks, tests, and packs each package into the tarball the check installed and
 #   type-checked. It can read the repository and nothing else.
 # - `publish` installs only npm, at flake.nix's version, and runs no code of the repository's: it
-#   takes those tarballs and publishes them. Only it may ask GitHub for the OIDC token npm accepts, and only in the `npm`
+#   takes those tarballs and stages them. Only it may ask GitHub for the OIDC token npm accepts, and only in the `npm`
 #   environment, which allows deployments from `main` alone.
 #
 # Setting up, once, by the founder (AGENTS.md, "Publishing"):
 # - The repository's `npm` environment, with "Deployment branches" limited to `main`.
 # - A package's first version goes with the NPM_TOKEN secret of that environment: a granular access
-#   token for that publish (read and write for @bagatka, expiring in a day), set with
+#   token for that run ("Read and write (stage only)", expiring in a day), set with
 #   `gh secret set NPM_TOKEN --repo bagatka/kit --env npm` and deleted afterwards.
 # - Then, once per package, this workflow as its trusted publisher, bound to the environment, signed
 #   in to npm with two-factor authentication:
-#     npm trust github @bagatka/<name> --repo bagatka/kit --file publish.yml --env npm --allow-publish --yes
+#     npm trust github @bagatka/<name> --repo bagatka/kit --file publish.yml --env npm --allow-stage-publish --yes
 #   and tokens refused for it from then on:
 #     npm access set mfa=publish @bagatka/<name>
 name: Publish
@@ -110,7 +112,7 @@ jobs:
           name: release
           path: ${{ runner.temp }}/release
 
-      - name: Publish what npm doesn't have
+      - name: Stage what npm doesn't have
         working-directory: ${{ runner.temp }}/release
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -127,6 +129,8 @@ jobs:
             # For first versions. npm reads the variable when it runs, so the token isn't written down.
             echo "//registry.npmjs.org/:_authToken=\${NPM_TOKEN}" > "$HOME/.npmrc"
           fi
+          # Each one is tried, so a run after some were staged, and wait for approval, stages the rest.
+          refused=()
           while read -r package tarball; do
             # npm answers E404 for a name or version it doesn't have; anything else stops here.
             set +e
@@ -141,8 +145,14 @@ jobs:
               echo "::error::npm couldn't say whether it has $package: $found"
               exit 1
             fi
-            if ! npm publish "./$tarball" --provenance --access public; then
-              echo "::error::npm didn't publish $package; its output above says why. A package without a trusted publisher yet needs one (see the top of this workflow), then run this again: gh workflow run publish.yml --ref main"
-              exit 1
+            if npm stage publish "./$tarball" --provenance --access public; then
+              echo "::notice::$package is staged: approve it on npmjs.com, Staged Packages."
+            else
+              echo "::error::npm didn't stage $package; its output above says why (one already staged waits for approval)."
+              refused+=("$package")
             fi
           done < order.txt
+          if [ "${#refused[@]}" -gt 0 ]; then
+            echo "::error::Not staged: ${refused[*]}. A package without a trusted publisher yet needs one (see the top of this workflow), then run this again: gh workflow run publish.yml --ref main"
+            exit 1
+          fi

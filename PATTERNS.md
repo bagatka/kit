@@ -250,13 +250,16 @@ Packages read what strangers send: tokens, keys, bodies, documents, text.
 - **What is published is the tarball the check installed.** `bun run build` packs each package with
   `npm pack`, refuses a tarball holding anything but `package.json`, `README.md`, `CHANGELOG.md`,
   `LICENSE`, `dist/` and `src/`, and installs the tarballs themselves for the checks.
-- **A push to `main` publishes,** or the workflow run by hand on `main`, each `name@version` npm
-  doesn't have, dependencies first, with provenance (`.github/workflows/publish.yml`), in two jobs: one installs, checks, tests and packs,
-  and can only read the repository; the other installs only npm and runs nothing of ours, publishes those
-  tarballs, and alone may ask for the token npm accepts, in the `npm` environment, which only `main`
-  deploys to, and only from main's newest commit. npm signs it in by trusted publishing bound to
-  that environment; a package's very first version goes with a granular token of that environment,
-  made for a day and deleted after; then npm refuses tokens for the package (`mfa=publish`).
+- **A push to `main` stages,** or the workflow run by hand on `main`, each `name@version` npm
+  doesn't have, dependencies first, with provenance (`.github/workflows/publish.yml`), and the
+  founder approves each staged version with 2FA before it is public: nothing reaches npm without a
+  person. Two jobs: one installs, checks, tests and packs, and can only read the repository; the
+  other installs only npm and runs nothing of ours, stages those tarballs, and alone may ask for the
+  token npm accepts, in the `npm` environment, which only `main` deploys to, and only from main's
+  newest commit. npm signs it in by trusted publishing bound to that environment and allowed to
+  stage only; a package's very first version goes with a stage-only granular token of that
+  environment, made for a day and deleted after; then npm refuses tokens for the package
+  (`mfa=publish`).
 
 ## 14. Build and checks
 
