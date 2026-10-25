@@ -7,6 +7,11 @@ import type { Problem } from "./unsupported-open-api.ts"
 import { UnsupportedOpenApi } from "./unsupported-open-api.ts"
 import { caseName, clientName, writeSwift } from "./write-swift.ts"
 
+// The names the client gives its own coding keys, in each struct, and its own locals, in each
+// method: raw identifiers, which a document's name can be too.
+const ownKeys = "JSON keys"
+const ownLocals = ["query items", "request body", "the answer"]
+
 // Type names the Swift file declares or uses, from itself, Swift and Foundation, and the ones an app
 // uses most, which a type of the API would hide in the app's module.
 const reservedTypes = new Set([
@@ -98,6 +103,17 @@ const caseProblems = (
     return []
   })
 
+// Why a parameter's name can't be written, if it can't.
+const parameterProblem = (parameter: string, isRepeated: boolean): string | undefined => {
+  if (swiftName(parameter) === undefined || parameter === "self" || parameter === "Self") {
+    return "no Swift name can hold it"
+  }
+  if (ownLocals.includes(parameter)) {
+    return `the client takes it for its own (${ownLocals.join(", ")})`
+  }
+  return isRepeated ? "another parameter has it" : undefined
+}
+
 // What the API's names would make of the Swift file: every name that can't be written, and every
 // name two things would share.
 const nameProblems = (api: Api): ReadonlyArray<Problem> => {
@@ -123,6 +139,8 @@ const nameProblems = (api: Api): ReadonlyArray<Problem> => {
           const path = at(at(schema(declaration.name), "properties"), key)
           if (swiftName(key) === undefined || key === "self" || key === "Self") {
             problems.push({ path, reason: "a property's key no Swift name can hold" })
+          } else if (key === ownKeys) {
+            problems.push({ path, reason: `a property's key the client takes for its own, ${ownKeys}` })
           } else if (isStored && key === "hashValue") {
             problems.push({ path, reason: "a property's key Swift's Hashable takes for itself" })
           }
@@ -159,18 +177,14 @@ const nameProblems = (api: Api): ReadonlyArray<Problem> => {
   )
   for (const operation of api.operations) {
     const names = [...operation.pathParameters, ...operation.queryParameters].map((parameter) => parameter.name)
-    const unwritable = names.find(
-      (parameter, index) =>
-        swiftName(parameter) === undefined ||
-        parameter === "self" ||
-        parameter === "Self" ||
-        names.indexOf(parameter) !== index,
-    )
-    if (unwritable !== undefined) {
-      problems.push({
-        path: at("#/paths", operation.path),
-        reason: `the parameter ${unwritable} of ${operation.name} can't be a Swift name, or two share one`,
-      })
+    for (const [index, parameter] of names.entries()) {
+      const reason = parameterProblem(parameter, names.indexOf(parameter) !== index)
+      if (reason !== undefined) {
+        problems.push({
+          path: at("#/paths", operation.path),
+          reason: `the parameter ${parameter} of ${operation.name}: ${reason}`,
+        })
+      }
     }
   }
   return problems

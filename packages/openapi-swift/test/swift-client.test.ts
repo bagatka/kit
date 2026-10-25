@@ -180,7 +180,10 @@ describe("swiftClient", () => {
             properties: { next: { anyOf: [{ $ref: "#/components/schemas/Loop" }, { type: "null" }] } },
           },
           Task: { type: "object", properties: { done: { type: "boolean" } } },
-          Holder: { type: "object", properties: { self: { type: "string" }, hashValue: { type: "integer" } } },
+          Holder: {
+            type: "object",
+            properties: { self: { type: "string" }, hashValue: { type: "integer" }, "JSON keys": { type: "string" } },
+          },
           Values: { type: "string", enum: ["rawValue", "fine", "fine"] },
           Dotted: { type: "object", properties: { kind: { type: "string", enum: ["a.b"] } }, required: ["kind"] },
           Snaked: { type: "object", properties: { kind: { type: "string", enum: ["a_b"] } }, required: ["kind"] },
@@ -193,6 +196,7 @@ describe("swiftClient", () => {
       assert.deepStrictEqual(problems, [
         "#/components/schemas/Holder/properties/self: a property's key no Swift name can hold",
         "#/components/schemas/Holder/properties/hashValue: a property's key Swift's Hashable takes for itself",
+        "#/components/schemas/Holder/properties/JSON keys: a property's key the client takes for its own, JSON keys",
         '#/components/schemas/Kinds: "a.b" and "a_b" both make the case aB of the union',
         '#/components/schemas/Kinds: "*" makes no Swift case name of the union: give it a letter',
         "#/components/schemas/Task: Task is a name the Swift client, Swift or Foundation takes; rename the schema",
@@ -1088,11 +1092,19 @@ describe("swiftClient", () => {
                       { name: "id", in: "query", schema: string },
                     ],
                   ],
+                  [
+                    "/e",
+                    ["query items", "request body", "the answer"].map((name) => ({
+                      name,
+                      in: "query",
+                      schema: string,
+                    })),
+                  ],
                 ].map(([route, parameters], index) => [
                   route,
                   {
                     get: {
-                      operationId: `things.${"abcd"[index]}`,
+                      operationId: `things.${"abcde"[index]}`,
                       parameters,
                       responses: { "200": { description: "Done" } },
                     },
@@ -1101,10 +1113,14 @@ describe("swiftClient", () => {
               ),
             ),
             [
-              "#/paths/~1a: the parameter a`b of a can't be a Swift name, or two share one",
-              "#/paths/~1b: the parameter self of b can't be a Swift name, or two share one",
-              "#/paths/~1c: the parameter Self of c can't be a Swift name, or two share one",
-              "#/paths/~1d~1{id}: the parameter id of d can't be a Swift name, or two share one",
+              "#/paths/~1a: the parameter a`b of a: no Swift name can hold it",
+              "#/paths/~1b: the parameter self of b: no Swift name can hold it",
+              "#/paths/~1c: the parameter Self of c: no Swift name can hold it",
+              "#/paths/~1d~1{id}: the parameter id of d: another parameter has it",
+              ...["query items", "request body", "the answer"].map(
+                (name) =>
+                  `#/paths/~1e: the parameter ${name} of e: the client takes it for its own (query items, request body, the answer)`,
+              ),
             ],
           ],
           // Every problem at once: a document without a title still has its names checked.

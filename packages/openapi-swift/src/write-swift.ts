@@ -2,8 +2,8 @@ import type { Api, Declaration, Operation, Parameter, Property, Struct, ValueTyp
 import { camelCase, docComment, oneLine, pascalCase, stringLiteral, swiftName } from "./swift-names.ts"
 
 // Swift source from what the generator read; every name it writes was checked before. Names the
-// generated code declares for itself are raw identifiers, such as `JSON keys`, which no name from a
-// document can be, so the two never meet.
+// generated code declares for itself are raw identifiers, such as `JSON keys`; a document's name
+// that is one of them was refused (`swift-client.ts`).
 
 // A name as Swift writes it. One that reaches here unchecked is this package's bug, which dies
 // rather than writing the document's text as code.
