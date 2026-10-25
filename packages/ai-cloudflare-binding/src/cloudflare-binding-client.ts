@@ -38,7 +38,7 @@ export const layer = (options: Options): Layer.Layer<CloudflareClient.Cloudflare
     CloudflareClient.CloudflareClient,
     CloudflareClient.CloudflareClient.of({
       client: noHttp,
-      createDecisions: Effect.fn("CloudflareBindingClient.createDecisions")(
+      createDecisions: Effect.fn("CloudflareBindingClient.createDecisions", { kind: "client" })(
         function* (request) {
           const output = yield* Effect.tryPromise({
             try: (signal) => options.binding.run(`@cf/cloudflare/${request.model}`, request, { signal }),

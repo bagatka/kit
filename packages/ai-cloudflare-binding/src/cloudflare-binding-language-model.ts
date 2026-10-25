@@ -1,5 +1,7 @@
 import { Context, Effect, Function, Layer, Option, Predicate, Stream } from "effect"
-import { AiError, IdGenerator, LanguageModel } from "effect/ai"
+import type { Tracer } from "effect"
+import { AiError, IdGenerator, LanguageModel, Telemetry } from "effect/ai"
+import type { Response } from "effect/ai"
 
 import { completeAnswer, completeAnswerStream, streamedAnswer } from "./answers.ts"
 import { failureOf, messageOf } from "./failures.ts"
@@ -85,13 +87,46 @@ const responseFormatOf = (format: LanguageModel.ProviderOptions["responseFormat"
   }
 }
 
+// OpenTelemetry's GenAI attributes on the span `effect/ai` made for the call, `LanguageModel.
+// generateText` and the others, as Effect's own providers write them: who answers, with which model
+// and settings; then why it stopped and the tokens it counted, when it says.
+const providerName = "cloudflare.workers_ai"
+
+const annotateRequest = (span: Tracer.Span, model: string, config: typeof Config.Service): void =>
+  Telemetry.addGenAIAnnotations(span, {
+    provider: { name: providerName },
+    operation: { name: "chat" },
+    request: {
+      model,
+      maxTokens: config.max_tokens,
+      temperature: config.temperature,
+      topP: config.top_p,
+      topK: config.top_k,
+      seed: config.seed,
+      frequencyPenalty: config.frequency_penalty,
+      presencePenalty: config.presence_penalty,
+    },
+  })
+
+const annotateFinish = (span: Tracer.Span, part: Response.StreamPartEncoded | Response.PartEncoded): void => {
+  if (part.type === "finish") {
+    Telemetry.addGenAIAnnotations(span, {
+      response: { finishReasons: [part.reason] },
+      usage: { inputTokens: part.usage.inputTokens.total, outputTokens: part.usage.outputTokens.total },
+    })
+  }
+}
+
 // A Worker's `ReadableStream` is async-iterable, of bytes; an answer that came whole is an object.
 const isByteStream = (output: unknown): output is AsyncIterable<Uint8Array> =>
   Predicate.hasProperty(output, Symbol.asyncIterator)
 
 /** `LanguageModel` on `options.model`, run through `options.binding`. */
 export const make = (options: Options): Effect.Effect<LanguageModel.LanguageModel> => {
-  const run = Effect.fn("CloudflareBindingLanguageModel.run")(function* (inputs: Readonly<Record<string, unknown>>) {
+  // The binding's run: the request, as an HTTP client span is for Effect's providers over REST.
+  const run = Effect.fn("CloudflareBindingLanguageModel.run", { kind: "client" })(function* (
+    inputs: Readonly<Record<string, unknown>>,
+  ) {
     return yield* Effect.tryPromise({
       try: (signal) => options.binding.run(options.model, inputs, { signal }),
       catch: failureOf,
@@ -105,6 +140,7 @@ export const make = (options: Options): Effect.Effect<LanguageModel.LanguageMode
     const messages = yield* messagesOf(provider.prompt)
     const format = yield* responseFormatOf(provider.responseFormat)
     const config = yield* configOf(options.config)
+    annotateRequest(provider.span, options.model, config)
     const inputs: Readonly<Record<string, unknown>> = {
       ...config,
       messages,
@@ -114,11 +150,17 @@ export const make = (options: Options): Effect.Effect<LanguageModel.LanguageMode
     return inputs
   })
 
-  const generateText = Effect.fn("CloudflareBindingLanguageModel.generateText")(
+  // Inside `effect/ai`'s own span for the call, which it annotates; a span of its own here would only
+  // repeat it.
+  const generateText = Effect.fnUntraced(
     function* (provider: LanguageModel.ProviderOptions) {
       const inputs = yield* inputsOf(provider, false)
       const output = yield* run(inputs)
-      return yield* completeAnswer(output)
+      const parts = yield* completeAnswer(output)
+      for (const part of parts) {
+        annotateFinish(provider.span, part)
+      }
+      return parts
     },
     Effect.mapError((reason) =>
       AiError.make({ module: "CloudflareBindingLanguageModel", method: "generateText", reason }),
@@ -135,6 +177,7 @@ export const make = (options: Options): Effect.Effect<LanguageModel.LanguageMode
         return isByteStream(output) ? streamedAnswer(output, id) : completeAnswerStream(output, id)
       }),
     ).pipe(
+      Stream.tap((part) => Effect.sync(() => annotateFinish(provider.span, part))),
       Stream.mapError((reason) =>
         AiError.make({ module: "CloudflareBindingLanguageModel", method: "streamText", reason }),
       ),

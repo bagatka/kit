@@ -27,8 +27,12 @@ import { CloudflareDecisionModel } from "@effect/ai-cloudflare"
 import { Config, Effect, Layer, Schema } from "effect"
 import { Decision, DecisionModel, LanguageModel } from "effect/ai"
 
-// In a Worker's host, with its AI binding (`"ai": { "binding": "AI" }` in wrangler.jsonc). The model
-// comes from configuration, decoded, so an ID of the wrong shape fails at startup.
+// The Worker's bindings, as `wrangler types` writes them for `"ai": { "binding": "AI" }` in
+// wrangler.jsonc; `Ai` is Cloudflare's type. In a module Worker, `import { env } from "cloudflare:workers"`.
+declare const env: { readonly AI: Ai }
+
+// In the Worker's host. The model comes from configuration, decoded, so an ID of the wrong shape
+// fails at startup.
 const LanguageModelLive = Layer.unwrap(
   Effect.map(Config.schema(WorkersAiModel, "AI_MODEL"), (model) =>
     CloudflareBindingLanguageModel.layer({ binding: env.AI, model, config: { max_tokens: 1024 } }),
@@ -176,6 +180,15 @@ answers short. For decisions, the Clef model is `CloudflareDecisionModel.layer`'
   why. Not checked against a live Worker here: the fake binding answers as Clef's documentation
   writes.
 - **One run per call.** Interrupting a call aborts the binding's run through its signal.
+- **What it shows, as Effect's own providers.** `effect/ai` makes the span for each call,
+  `LanguageModel.generateText`, `LanguageModel.streamText` or `DecisionModel.decide`; on the
+  language model's, this package writes OpenTelemetry's GenAI attributes: `gen_ai.provider.name`
+  `cloudflare.workers_ai` (OpenTelemetry names no value for Workers AI), `gen_ai.operation.name`
+  `chat`, `gen_ai.request.model` and the settings sent, then `gen_ai.response.finish_reasons` and
+  `gen_ai.usage.input_tokens` and `output_tokens` when Workers AI counted them. The binding's run
+  is a client span of its own, `CloudflareBindingLanguageModel.run` or
+  `CloudflareBindingClient.createDecisions`, as an HTTP request is for providers over REST. Prompts
+  and answers are never written to spans.
 - **`effect/ai` and `@effect/ai-cloudflare` are unstable.** Both are allowed by name in
   `tsconfig.base.json` and pinned with `effect`; an upgrade reads their changelogs for
   `LanguageModel.make`, the response parts, and `CloudflareClient`.

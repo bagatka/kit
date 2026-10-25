@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Fiber, Predicate, Result, Schema, Stream } from "effect"
+import { Effect, Fiber, Predicate, Result, Schema, Stream, Tracer } from "effect"
 import { LanguageModel, Tool, Toolkit } from "effect/ai"
 import type { Response } from "effect/ai"
 
@@ -629,5 +629,60 @@ describe("WorkersAiModel", () => {
         assert.isTrue(Result.isFailure(refused), wrong)
       }
     }),
+  )
+
+  it.effect(
+    "records OpenTelemetry's GenAI attributes on effect/ai's span, and the binding's run as a client span",
+    () =>
+      Effect.gen(function* () {
+        const spans: Array<Tracer.NativeSpan> = []
+        const tracer = Tracer.make({
+          span: (options) => {
+            const span = new Tracer.NativeSpan(options)
+            spans.push(span)
+            return span
+          },
+        })
+        const usage = { prompt_tokens: 48, completion_tokens: 9, total_tokens: 57 }
+        const fake = fakeBinding([
+          { answer: { choices: [{ message: { content: "Sync works." }, finish_reason: "length" }], usage } },
+          {
+            answer: eventStream([
+              'data: {"response":"Sync","usage":{"prompt_tokens":48,"completion_tokens":9,"total_tokens":57}}\n\n',
+              "data: [DONE]\n\n",
+            ]),
+          },
+        ])
+        yield* withWorkersAi(
+          fake,
+          Effect.gen(function* () {
+            yield* LanguageModel.generateText({ prompt: "Summarize the release." })
+            yield* Stream.runDrain(LanguageModel.streamText({ prompt: "Summarize the release." }))
+          }),
+          { max_tokens: 64, temperature: 0.2 },
+        ).pipe(Effect.provideService(Tracer.Tracer, tracer))
+
+        assert.deepStrictEqual(
+          spans.map((span) => [span.name, span.kind]),
+          [
+            ["LanguageModel.generateText", "client"],
+            ["CloudflareBindingLanguageModel.run", "client"],
+            ["LanguageModel.streamText", "client"],
+            ["CloudflareBindingLanguageModel.run", "client"],
+          ],
+        )
+        const attributesOf = (index: number) => Object.fromEntries(spans[index]?.attributes ?? [])
+        const request = {
+          "gen_ai.provider.name": "cloudflare.workers_ai",
+          "gen_ai.operation.name": "chat",
+          "gen_ai.request.model": model,
+          "gen_ai.request.max_tokens": 64,
+          "gen_ai.request.temperature": 0.2,
+          "gen_ai.usage.input_tokens": 48,
+          "gen_ai.usage.output_tokens": 9,
+        }
+        assert.deepInclude(attributesOf(0), { ...request, "gen_ai.response.finish_reasons": ["length"] })
+        assert.deepInclude(attributesOf(2), { ...request, "gen_ai.response.finish_reasons": ["unknown"] })
+      }),
   )
 })

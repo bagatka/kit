@@ -217,3 +217,20 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
   exporter, `@bagatka/otlp` read as one more way to send telemetry. The name now says what it gives
   and how, as `ai-cloudflare-binding` does: OTLP, in its protobuf encoding, read and written.
   `otlp-codec` was vaguer, and `otlp-receiver` wrong, since it also writes.
+
+## `@bagatka/ai-cloudflare-binding`
+
+- **Contract confirmed, and it fits "Calling a service".** Its failures are Effect's `AiError`,
+  whose `isRetryable` and `RateLimitError` say what entry 17's five errors say; it retries nothing;
+  a generation has no timeout, as Effect's providers have none.
+- **OpenTelemetry's GenAI attributes, which it didn't write.** `effect/ai` makes the span of each
+  call and hands it to the provider to describe, as Effect's own providers do; this one left it
+  bare and made a span of its own inside it, `CloudflareBindingLanguageModel.generateText`, which
+  only repeated it. Now it writes `gen_ai.provider.name` (`cloudflare.workers_ai`, as OpenTelemetry
+  names none), `gen_ai.operation.name`, the model and settings, the finish reason and the tokens on
+  `effect/ai`'s span, for text and for streams; the repeated span is gone; the binding's run is a
+  client span, as an HTTP request is. Prompts and answers are never written. A test checks the
+  spans and attributes, and fails on the old code.
+- **The README's example compiles** against the installed tarball with Cloudflare Workers' types:
+  it used `env` without declaring it, and now declares it as `wrangler types` writes it.
+
