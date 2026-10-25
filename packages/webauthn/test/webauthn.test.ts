@@ -379,9 +379,13 @@ describe("passkeys", () => {
     }).pipe(Effect.provide(BrowserCrypto.layer)),
   )
 
-  it.effect("takes its challenges from the Crypto service the caller provides", () =>
+  it.effect("takes its challenges from the Crypto service the caller provides, and never fails", () =>
     Effect.gen(function* () {
-      const options = yield* authenticationOptions({ rpId: "notes.example" })
+      // A platform without random bytes is a defect, never a failure a caller must handle.
+      const making: Effect.Effect<AuthenticationOptions, never, Crypto.Crypto> = authenticationOptions({
+        rpId: "notes.example",
+      })
+      const options = yield* making
       assert.strictEqual(options.challenge, Base64Url.encode(new Uint8Array(32).fill(7)))
     }).pipe(
       Effect.provide(

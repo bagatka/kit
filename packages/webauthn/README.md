@@ -21,26 +21,48 @@ on Bun and Node.
 Registering, for an account that is signed in:
 
 ```ts
+import type { Passkey } from "@bagatka/webauthn"
 import { challengeOf, registrationOptions, verifyRegistration } from "@bagatka/webauthn"
+import { BrowserCrypto } from "@effect/platform-browser"
+import { Effect } from "effect"
 
-const options = yield* registrationOptions({
-  rp: { id: "notes.example", name: "Notes" },
-  user: { id: account.userHandle, name: "ada@example.com", displayName: "Ada" }, // 1–64 random bytes, canonical base64url
-  excludeIds: account.passkeyIds,
-})
-yield* challenges.keep(options.challenge, { purpose: "registration", account: account.id }) // for 5 minutes
-// send `options` to the browser; its `credential.toJSON()` comes back as `answer`
+// What the site keeps: its accounts, challenges for 5 minutes, and passkeys.
+declare const account: { readonly id: string; readonly userHandle: string; readonly passkeyIds: Array<string> }
+declare const challenges: {
+  readonly keep: (challenge: string, bound: { readonly purpose: string; readonly account: string }) => Effect.Effect<void>
+  /** Finds and deletes in one step; an empty string when there is none. */
+  readonly take: (challenge: string, bound: { readonly purpose: string; readonly account: string }) => Effect.Effect<string>
+}
+declare const passkeys: { readonly insert: (passkey: Passkey) => Effect.Effect<void> } // refuses an `id` already kept
+declare const send: (options: unknown) => Effect.Effect<unknown> // to the browser, and its `credential.toJSON()` back
 
-// Find the kept challenge by the one the answer names, and take it: used once, for this purpose and
-// this account. The answer's own challenge is the client's word, never what you check against.
-const kept = yield* challenges.take(yield* challengeOf(answer), { purpose: "registration", account: account.id })
-const passkey = yield* verifyRegistration(crypto.subtle, answer, {
-  challenge: kept,
-  origins: ["https://notes.example"],
-  rpId: "notes.example",
-  userHandle: account.userHandle,
-})
-yield* passkeys.insert(passkey) // { id, publicKey, signCount, userHandle }; refuse an `id` already kept
+const register = Effect.gen(function* () {
+  const bound = { purpose: "registration", account: account.id }
+  const options = yield* registrationOptions({
+    rp: { id: "notes.example", name: "Notes" },
+    user: { id: account.userHandle, name: "ada@example.com", displayName: "Ada" }, // 1–64 random bytes, canonical base64url
+    excludeIds: account.passkeyIds,
+  })
+  yield* challenges.keep(options.challenge, bound)
+  const answer = yield* send(options)
+
+  // Find the kept challenge by the one the answer names, and take it: used once, for this purpose and
+  // this account. The answer's own challenge is the client's word, never what you check against.
+  const kept = yield* challenges.take(yield* challengeOf(answer), bound)
+  const passkey = yield* verifyRegistration(crypto.subtle, answer, {
+    challenge: kept,
+    origins: ["https://notes.example"],
+    rpId: "notes.example",
+    userHandle: account.userHandle,
+  })
+  yield* passkeys.insert(passkey) // { id, publicKey, signCount, userHandle }
+}).pipe(
+  // Any refusal: log its reason, and tell the person only to try again.
+  Effect.tapError((rejected) => Effect.logWarning(rejected.message)),
+  // The challenge's random bytes, on Workers and in browsers; NodeCrypto or BunCrypto elsewhere.
+  Effect.provide(BrowserCrypto.layer),
+)
+// register: Effect<void, WebAuthnRejected>
 ```
 
 Signing in is the same with `authenticationOptions` and `verifyAuthentication`: find the passkey by
@@ -75,7 +97,8 @@ What only the caller can do, which the checks rely on:
 ## Depends on
 
 `effect`, for `Crypto` and Schema; and the platform's Web Crypto, which the caller passes as
-`crypto.subtle`.
+`crypto.subtle`. A layer of Effect's `Crypto` service, such as `@effect/platform-browser`'s
+`BrowserCrypto.layer`, is the host's to install.
 
 ## Decisions and constraints
 

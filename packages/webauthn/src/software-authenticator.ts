@@ -114,9 +114,7 @@ const KeyPair = Schema.Struct({ privateKey: Schema.Unknown, publicKey: Schema.Un
  * For tests of the sites that check passkeys; its key lives in memory, and it can sign only with
  * its own key, so it can't stand in for anyone else's.
  */
-export const softwareAuthenticator = Effect.fn("WebAuthn.softwareAuthenticator")(function* (
-  crypto: AuthenticatorCrypto,
-) {
+export const softwareAuthenticator = Effect.fn("softwareAuthenticator")(function* (crypto: AuthenticatorCrypto) {
   const generated = yield* Effect.promise(() =>
     crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]),
   )

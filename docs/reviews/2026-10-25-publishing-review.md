@@ -96,3 +96,19 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
   GitHub refused (401): now `GitHubAppCredentialsRefused`, before `GitHubRefused`.
 - **Left as is:** a token the caller sends and GitHub revoked is refused until it expires, as the
   package doesn't see that answer; the README says so.
+
+## `@bagatka/webauthn`
+
+- **The options never fail.** `registrationOptions` and `authenticationOptions` failed with
+  Effect's `PlatformError` when the platform had no random bytes, which the README's "every refusal
+  is `WebAuthnRejected`" didn't say and no caller can fix: it is a defect now (PATTERNS.md,
+  "Errors"), and a test's type fails to compile otherwise.
+- **Spans named as the caller writes them,** `verifyRegistration`, not `WebAuthn.verifyRegistration`,
+  as `signJwt` is (PATTERNS.md, "Calling a service, and what it shows").
+- **The README's example compiles,** with the stores it uses declared, the `Crypto` layer provided,
+  and the refusal handled; checked against the installed tarball, and a whole ceremony run from it
+  on Node 26: registered, signed in, and a sign-in from another origin refused, with its reason.
+- **Open, for the founder:** registrations are read from `response.authenticatorData`, which
+  `toJSON()` gives in Chrome 129, Firefox 119 and Safari 18.4 and later, but an iPhone app's
+  registration doesn't: `ASAuthorizationPlatformPublicKeyCredentialRegistration` has only
+  `rawAttestationObject`, the CBOR that holds it.

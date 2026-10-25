@@ -87,7 +87,7 @@ export type AuthenticationOptions = typeof AuthenticationOptions.Type
  * the 5 minutes devices wait. A `user.id` that isn't 1 to 64 bytes of canonical base64url is a
  * bug, and dies.
  */
-export const registrationOptions = Effect.fn("WebAuthn.registrationOptions")(function* (input: RegistrationInput) {
+export const registrationOptions = Effect.fn("registrationOptions")(function* (input: RegistrationInput) {
   if (!isUserHandle(input.user.id)) {
     return yield* Effect.die("registrationOptions takes a user.id of 1 to 64 random bytes in canonical base64url")
   }
@@ -112,7 +112,7 @@ export const registrationOptions = Effect.fn("WebAuthn.registrationOptions")(fun
  * challenge of 32 random bytes from Effect's `Crypto`. Keep the challenge, and use it once, within
  * the 5 minutes devices wait.
  */
-export const authenticationOptions = Effect.fn("WebAuthn.authenticationOptions")(function* (input: {
+export const authenticationOptions = Effect.fn("authenticationOptions")(function* (input: {
   /** The site's hostname: `example.com`. */
   readonly rpId: string
 }) {
@@ -203,7 +203,7 @@ const AnswerWithClientData = Schema.Struct({ response: Schema.Struct({ clientDat
  * it. Use it only to find and take the challenge kept for it, bound to its purpose and, for a
  * registration, to its account; then pass the kept one as `Expected.challenge`, never this.
  */
-export const challengeOf = Effect.fn("WebAuthn.challengeOf")(function* (answer: unknown) {
+export const challengeOf = Effect.fn("challengeOf")(function* (answer: unknown) {
   const decoded = yield* Schema.decodeUnknownEffect(AnswerWithClientData)(answer).pipe(
     Effect.mapError(() => new WebAuthnRejected({ reason: "The answer isn't WebAuthn's JSON" })),
   )
@@ -218,7 +218,7 @@ export const challengeOf = Effect.fn("WebAuthn.challengeOf")(function* (answer: 
  * keep, for `expected.userHandle`'s account, with its counter. Attestation isn't checked: any
  * authenticator may register. An answer that isn't WebAuthn's JSON is refused, not a defect.
  */
-export const verifyRegistration = Effect.fn("WebAuthn.verifyRegistration")(function* (
+export const verifyRegistration = Effect.fn("verifyRegistration")(function* (
   crypto: WebAuthnCrypto,
   answer: unknown,
   expected: RegistrationExpected,
@@ -276,7 +276,7 @@ export const verifyRegistration = Effect.fn("WebAuthn.verifyRegistration")(funct
  * counter moved on, unless the authenticator keeps none. Look the passkey up by the answer's `id`
  * alone. The counter to keep. An answer that isn't WebAuthn's JSON is refused, not a defect.
  */
-export const verifyAuthentication = Effect.fn("WebAuthn.verifyAuthentication")(function* (
+export const verifyAuthentication = Effect.fn("verifyAuthentication")(function* (
   crypto: WebAuthnCrypto,
   answer: unknown,
   passkey: Passkey,
@@ -341,10 +341,11 @@ const backedUp = 0x10
 const attestedData = 0x40
 const extensionData = 0x80
 
-// 32 random bytes, base64url: WebAuthn asks for at least 16.
+// 32 random bytes, base64url: WebAuthn asks for at least 16. A platform that can't give random
+// bytes is one no caller can fix, so it dies.
 const newChallenge = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto
-  const bytes = yield* crypto.randomBytes(32)
+  const bytes = yield* crypto.randomBytes(32).pipe(Effect.orDie)
   return Base64Url.encode(bytes)
 })
 
