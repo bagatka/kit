@@ -1,4 +1,4 @@
-# @bagatka/otlp
+# @bagatka/otlp-protobuf
 
 Reads and writes OpenTelemetry's OTLP/HTTP protobuf exports of traces and logs, and the answers
 exporters expect, with Effect.
@@ -6,7 +6,7 @@ exporters expect, with Effect.
 ## Install
 
 ```sh
-npm install @bagatka/otlp effect
+npm install @bagatka/otlp-protobuf effect
 ```
 
 Its peer dependency is `effect`, at the minor version it is built with: your program uses that one
@@ -16,7 +16,7 @@ Cloudflare Workers, browsers, Deno, Bun, and Node.
 ## Use it
 
 ```ts
-import { decodeTraces, exportResponse, protobufContentType } from "@bagatka/otlp"
+import { decodeTraces, exportResponse, protobufContentType } from "@bagatka/otlp-protobuf"
 import { Effect } from "effect"
 
 // What the receiver keeps of each span, in a store of your own.

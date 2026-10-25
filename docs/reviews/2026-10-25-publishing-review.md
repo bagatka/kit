@@ -195,7 +195,7 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
   `{ relativeAccuracy }`; `mergeSketches` returns `Result<QuantileSketch, QuantileSketchesDiffer>`.
   No package here calls it.
 
-## `@bagatka/otlp`
+## `@bagatka/otlp-protobuf`, was `@bagatka/otlp`
 
 - **Contract confirmed.** Effect sends OTLP (`effect/observability`'s `Otlp`) but has no public
   reader of it, so this package is what Effect doesn't have: the receiving side, and writing
@@ -213,4 +213,7 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
   32,111,000 ns; the same body cut short, 400 with "The message ends 10 bytes too early, at byte 5".
 - **Its costs measured again** on 6.7 MB, 19,000 spans: Bun 59 ms to decode and 48 to encode, Node
   96 and 93.
-
+- **Renamed `@bagatka/otlp-protobuf`, decided with the founder.** Beside Effect's `Otlp`, an
+  exporter, `@bagatka/otlp` read as one more way to send telemetry. The name now says what it gives
+  and how, as `ai-cloudflare-binding` does: OTLP, in its protobuf encoding, read and written.
+  `otlp-codec` was vaguer, and `otlp-receiver` wrong, since it also writes.

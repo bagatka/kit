@@ -640,7 +640,7 @@ conflict.
   own code, and runs every check.
 - **Status:** twelve packages, none published yet: `jwt`, `webauthn`, `scrub`, and
   `workspace-rules`, reviewed in `docs/reviews/2026-10-23-first-review.md`; `qr-code`,
-  `quantile-sketch`, `otlp`, `apns`, `ai-cloudflare-binding`, `openapi-swift`, `app-store-connect`, and
+  `quantile-sketch`, `otlp-protobuf`, `apns`, `ai-cloudflare-binding`, `openapi-swift`, `app-store-connect`, and
   `github-app`, reviewed in `docs/reviews/2026-10-24-second-review.md`.
 - **The repository is public.** No names of the founder's private products, real domains, Apple
   team IDs, or bundle IDs in any file or commit message. Examples and fixtures use made-up apps:

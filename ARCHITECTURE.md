@@ -15,7 +15,7 @@ own.
 | `packages/jwt` | Signs JWTs with ES256 and RS256 keys through Web Crypto | `packages/jwt/src/index.ts` |
 | `packages/webauthn` | Passkeys: registration and authentication options, and checks of the answers | `packages/webauthn/src/index.ts` |
 | `packages/openapi-swift` | Writes a typed Swift client from an OpenAPI 3.1 document | `packages/openapi-swift/src/index.ts` |
-| `packages/otlp` | Reads and writes OTLP/HTTP protobuf exports of traces and logs | `packages/otlp/src/index.ts` |
+| `packages/otlp-protobuf` | Reads and writes OTLP/HTTP protobuf exports of traces and logs | `packages/otlp-protobuf/src/index.ts` |
 | `packages/qr-code` | Encodes text as a QR code and draws it as SVG path data | `packages/qr-code/src/index.ts` |
 | `packages/quantile-sketch` | Quantiles of any number of values from small sketches that merge | `packages/quantile-sketch/src/index.ts` |
 | `packages/scrub` | Removes credentials and personal data from text before it is stored | `packages/scrub/src/index.ts` |

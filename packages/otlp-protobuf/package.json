@@ -1,5 +1,5 @@
 {
-  "name": "@bagatka/otlp",
+  "name": "@bagatka/otlp-protobuf",
   "version": "0.1.0",
   "private": true,
   "description": "Reads and writes OpenTelemetry's OTLP/HTTP protobuf exports of traces and logs, and the answers exporters expect, with Effect.",
