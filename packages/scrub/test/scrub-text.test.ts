@@ -52,6 +52,7 @@ const recognized: ReadonlyArray<readonly [string, string]> = [
   // Values of named secrets.
   ["user=bob password=hunter2 DB_SECRET: abc,", "user=bob password=[secret] DB_SECRET: [secret],"],
   [String.raw`{"api_key": "ab\"c", "clientSecret":'x'}`, `{"api_key": "[secret]", "clientSecret":'[secret]'}`],
+  [`api_keys=k1,k2 private_keys: "abc"`, `api_keys=[secret],k2 private_keys: "[secret]"`],
   [String.raw`{\"password\":\"hunter2\"}`, String.raw`{\"password\":\"[secret]\"}`],
   // To the closing quote, past any number of escapes.
   [`{"password":"${String.raw`\t`.repeat(300)}end"}`, '{"password":"[secret]"}'],
@@ -262,10 +263,29 @@ describe("isSecretName", () => {
       "passphrase",
       "connection_string",
       "SessionId",
+      "api_keys",
+      "private_keys",
+      "signingKeys",
+      "tokens",
+      "access_tokens",
+      "refreshTokens",
     ]) {
       assert.isTrue(isSecretName(name), name)
     }
-    for (const name of ["max_tokens", "gen_ai.usage.input_tokens", "http.route", "keyword", "monkey", "otp", "ssn"]) {
+    for (const name of [
+      "max_tokens",
+      "gen_ai.usage.input_tokens",
+      "llm.usage.total_tokens",
+      "maxTokens",
+      "tokens_used",
+      "keys",
+      "monkeys",
+      "http.route",
+      "keyword",
+      "monkey",
+      "otp",
+      "ssn",
+    ]) {
       assert.isFalse(isSecretName(name), name)
     }
     const javaScript: { isSecretName(name: unknown): boolean } = { isSecretName }

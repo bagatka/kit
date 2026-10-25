@@ -166,8 +166,13 @@ const secretParameter =
 
 // The words that end a credential's name, for `isSecretName` and for named values in text. In
 // text, `token`'s value goes only when it looks like one, and `authorization` has its own pattern.
-const valueNames = String.raw`passwords?|passwd|pwd|passphrase|secrets?|credentials?|jwt|signature|session[_-]?id|connection[_-]?string|cookies?|(?:api|access|secret|private|signing|encryption|master)[_-]?key`
-const secretName = new RegExp(String.raw`(?:^|[._-])(?:${valueNames}|token|authorization)$`, "i")
+const valueNames = String.raw`passwords?|passwd|pwd|passphrase|secrets?|credentials?|jwt|signature|session[_-]?id|connection[_-]?string|cookies?|(?:api|access|secret|private|signing|encryption|master)[_-]?keys?`
+// Tokens in the plural are credentials only as kinds of token (`access_tokens`) or as the whole
+// name (`tokens`): after another word they are usually counts (`max_tokens`, `input_tokens`).
+const secretName = new RegExp(
+  String.raw`(?:^|[._-])(?:${valueNames}|token|(?:access|refresh|id|auth)[_-]?tokens|authorization)$|^tokens$`,
+  "i",
+)
 
 // The end of a name and what stands between it and its value: `password=`, `password: `,
 // `"password": "`, and the same inside a JSON string (`\"password\":\"`).
@@ -278,8 +283,9 @@ export const scrubText = (text: string, ownKeyPrefixes?: ReadonlyArray<string>):
 /**
  * Whether a value named `name` is a credential whatever it looks like: a name ending with a word on
  * the list (`password`, `secret`, `token`, `api_key`, `authorization`, `cookie`, ...), after `.`,
- * `_`, `-` or a lower-case letter (`http.request.header.authorization`, `clientSecret`). Counts of
- * tokens (`max_tokens`) aren't. What isn't a string isn't a secret name.
+ * `_`, `-` or a lower-case letter (`http.request.header.authorization`, `clientSecret`), in the
+ * plural too (`api_keys`, `access_tokens`, `tokens`). Counts of tokens (`max_tokens`) aren't. What
+ * isn't a string isn't a secret name.
  */
 export const isSecretName = (name: string): boolean => {
   const given: unknown = name

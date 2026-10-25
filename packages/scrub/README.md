@@ -28,6 +28,7 @@ scrubText("Refused acme_live_Zk3Pq9TzX2mV8wYb4LdR", ["acme_live_"]) // "Refused 
 
 // A value whose name says it is a credential is removed whole, whatever it looks like.
 isSecretName("http.request.header.authorization") // true
+isSecretName("api_keys") // true
 isSecretName("gen_ai.usage.input_tokens") // false
 ```
 
@@ -64,7 +65,8 @@ written another way passes through.
   a JSON string, `\"name\":\"value\"`), where the name ends with a word `isSecretName` knows:
   `password`, `passwd`, `pwd`, `passphrase`, `secret`, `credentials`, `jwt`, `signature`,
   `session_id`, `connection_string`, `cookie`, an API, access, secret, private, signing, encryption
-  or master key, and `token` (whose value must be 8 characters or more and not a word). A quoted
+  or master key, one or several (`api_keys`), and `token` (whose value must be 8 characters or more
+  and not a word). A quoted
   value goes to its closing quote, past any number of escapes. The name and quotes stay; `null`,
   `true`, `false` and structures (`{`, `[`) stay.
 - **`Cookie:` and `Set-Cookie:` header values,** to the end of the line.

@@ -1,6 +1,6 @@
 {
   "name": "@bagatka/scrub",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Removes credentials and personal data from text before it is stored: tokens, keys, secrets in URLs, emails, and card numbers.",
   "keywords": [

@@ -130,7 +130,7 @@
     },
     "packages/scrub": {
       "name": "@bagatka/scrub",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@effect/vitest": "catalog:",
         "vitest": "catalog:",
