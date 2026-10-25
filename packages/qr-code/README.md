@@ -16,19 +16,23 @@ Workers, browsers, Deno, Bun, and Node.
 ## Use it
 
 ```ts
+import type { QrCodeTooLong } from "@bagatka/qr-code"
 import { encodeQrCode, qrCodePath } from "@bagatka/qr-code"
 import { Result } from "effect"
 
-const encoded = encodeQrCode("https://notes.example/pair?code=Zk3Pq9TzX2mV8wYb4LdR7nHs1cFgJ0uE")
-if (Result.isSuccess(encoded)) {
-  const code = encoded.success
-  // Dark on light, with 4 light modules around the code: the quiet zone readers need.
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -4 ${code.size + 8} ${code.size + 8}"
-    shape-rendering="crispEdges"><rect x="-4" y="-4" width="100%" height="100%" fill="white" />
-    <path d="${qrCodePath(code)}" fill="black" /></svg>`
-} else {
-  encoded.failure // QrCodeTooLong { byteLength: 2412, limit: 2331 }: encode a short link to it instead.
-}
+// Dark on light, with 4 light modules around the code: the quiet zone readers need.
+const qrCodeSvg = (text: string): Result.Result<string, QrCodeTooLong> =>
+  Result.map(
+    encodeQrCode(text),
+    (code) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -4 ${code.size + 8} ${code.size + 8}"
+  shape-rendering="crispEdges"><rect x="-4" y="-4" width="100%" height="100%" fill="white" />
+  <path d="${qrCodePath(code)}" fill="black" /></svg>`,
+  )
+
+const pairing = qrCodeSvg("https://notes.example/pair?code=Zk3Pq9TzX2mV8wYb4LdR7nHs1cFgJ0uE")
+// Result.isSuccess(pairing): pairing.success is the SVG, 45 modules a side with its quiet zone.
+// Over 2331 bytes of UTF-8, it fails with QrCodeTooLong { byteLength, limit: 2331 }: encode a short
+// link to the text instead.
 ```
 
 ## Contract

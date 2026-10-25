@@ -153,3 +153,17 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
   which is removed whole; the list now says what happens, under "Does not recognize".
 - **npm and GitLab tokens are on the list, decided with the founder:** `npm_` and 36 characters or
   more, and `glpat-` and 20 or more, as CI logs can hold them.
+
+## `@bagatka/qr-code`
+
+- **Contract confirmed.** `encodeQrCode` is pure and synchronous, so it returns a `Result`, not an
+  `Effect`, and has no span, as pure functions called per item have none (PATTERNS.md, "Calling a
+  service, and what it shows"); its one error, `QrCodeTooLong`, is the caller's to act on, by
+  encoding a shorter link.
+- **The README's example is a function that returns the SVG.** It built the SVG into a variable it
+  never used, and its failure comment gave byte counts its own text couldn't reach. Now
+  `qrCodeSvg(text)` returns `Result<string, QrCodeTooLong>`, and it type-checks against the
+  installed tarball with unused names refused.
+- **The example's SVG scans:** rendered at 600 pixels, zxing-cpp reads back the exact link.
+- **Its costs hold,** measured again: a link 0.3 ms, version 40 7 to 8 ms, ten megabytes refused
+  in under 1 ms, on Node 26 and Bun 1.4.
