@@ -58,7 +58,9 @@ jobs:
           # flake.nix's npm, which packs the tarballs, and the Bun in package.json's packageManager,
           # the one flake.nix pins.
           npm install --global --silent npm@12.2.1
-          npm install --global --silent "$(node -p 'require("./package.json").packageManager')"
+          # npm 12 runs no package's install scripts unless allowed; Bun's puts its binary in place.
+          bun="$(node -p 'require("./package.json").packageManager')"
+          npm install --global --silent --allow-scripts="$bun" "$bun"
           bun install --frozen-lockfile
           bun run check
           bun run test
