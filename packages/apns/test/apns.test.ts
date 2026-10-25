@@ -4,7 +4,7 @@ import { Base64, Base64Url } from "effect/encoding"
 import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http"
 import { TestClock } from "effect/testing"
 
-import type { ApnsCrypto, ApnsPush, ApnsUnavailable } from "../src/index.ts"
+import type { ApnsCredentialsRefused, ApnsCrypto, ApnsPush, ApnsUnavailable } from "../src/index.ts"
 import { Apns, ApnsAnswer, DeviceToken } from "../src/index.ts"
 
 // The runtime's Web Crypto, text decoder and `Response`, which tests outside a runtime with their
@@ -273,6 +273,23 @@ describe("Apns", () => {
     }),
   )
 
+  it.effect("fails with ApnsCredentialsRefused, sending once, when APNs refuses the credentials' token", () =>
+    Effect.gen(function* () {
+      const key = yield* newKey()
+      const apns = fakeApns([
+        { status: 403, body: '{"reason":"InvalidProviderToken"}' },
+        { status: 403, body: '{"reason":"Forbidden"}' },
+      ])
+      const error = yield* withApns(key.pem, apns, send().pipe(Effect.flip))
+      assert.strictEqual(error._tag, "ApnsCredentialsRefused")
+      assert.include(error.message, "InvalidProviderToken")
+      assert.strictEqual(apns.asked.length, 1)
+      // Another 403 is about the push, and stays an answer.
+      const answer = yield* withApns(key.pem, apns, send())
+      assert.deepStrictEqual(answer, { _tag: "Rejected", status: 403, reason: "Forbidden" })
+    }),
+  )
+
   it.effect("fails with ApnsUnavailable when APNs may take the push later", () =>
     Effect.gen(function* () {
       const key = yield* newKey()
@@ -290,7 +307,7 @@ describe("Apns", () => {
         key.pem,
         apns,
         Effect.gen(function* () {
-          const failed: Array<ApnsUnavailable> = []
+          const failed: Array<ApnsUnavailable | ApnsCredentialsRefused> = []
           for (let attempt = 0; attempt < 6; attempt += 1) {
             failed.push(yield* send().pipe(Effect.flip))
           }

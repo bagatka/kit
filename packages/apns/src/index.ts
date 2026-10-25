@@ -8,6 +8,7 @@ export {
   ApnsAccepted,
   ApnsAnswer,
   ApnsCredentialsInvalid,
+  ApnsCredentialsRefused,
   ApnsInactive,
   ApnsRejected,
   ApnsUnavailable,

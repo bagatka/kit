@@ -18,14 +18,23 @@ doesn't, so there every push fails with `ApnsUnavailable`.
 ## Use it
 
 ```ts
-import { Apns } from "@bagatka/apns"
-import { Effect, Redacted } from "effect"
+import { Apns, DeviceToken } from "@bagatka/apns"
+import { Effect, Layer, Redacted, Schema } from "effect"
+import { FetchHttpClient } from "effect/http"
+
+declare const p8Text: string // the text of a token-signing key's .p8 file
+declare const registered: string // the device token the app sent you
 
 // In the host, once: fails with ApnsCredentialsInvalid if the key or IDs can't sign APNs's tokens.
-const ApnsLive = Apns.layer({ key: Redacted.make(p8Text), keyId: "ABCDE12345", teamId: "TEAM123456" }, crypto.subtle)
+const ApnsLive = Apns.layer(
+  { key: Redacted.make(p8Text), keyId: "ABCDE12345", teamId: "TEAM123456" },
+  crypto.subtle,
+).pipe(Layer.provide(FetchHttpClient.layer))
 
 const program = Effect.gen(function* () {
   const apns = yield* Apns
+  // Where the app's device token comes in: hex, or a SchemaError.
+  const deviceToken = yield* Schema.decodeUnknownEffect(DeviceToken)(registered)
   const answer = yield* apns.send({
     deviceToken,
     environment: "production",
@@ -34,13 +43,22 @@ const program = Effect.gen(function* () {
     priority: 10,
     payload: { aps: { alert: { title: "Notes · Down", body: "/health has failed for 3 minutes" } } },
   })
-  // { _tag: "Accepted", apnsId }; { _tag: "Inactive", reason: "Unregistered", since } for a token
-  // the app no longer has: forget it; or { _tag: "Rejected", status: 400, reason: "BadDeviceToken" }.
-})
+  switch (answer._tag) {
+    case "Accepted": // { apnsId }
+      return
+    case "Inactive": // { reason: "Unregistered", since }: the app no longer has this token.
+      return yield* Effect.log("Forget the token, unless the app registered it again after", answer.since)
+    case "Rejected": // { status: 400, reason: "BadDeviceToken" }: sending it again won't help.
+      return yield* Effect.logWarning(`APNs refused the push: ${answer.reason}`)
+  }
+}).pipe(Effect.provide(ApnsLive))
 ```
 
 When APNs can't be reached, doesn't answer in 10 seconds, or answers 429 or a server error, `send`
-fails with `ApnsUnavailable`: the push may be sent again later.
+fails with `ApnsUnavailable`: the push may be sent again later. When APNs refuses the credentials
+themselves (a key that was revoked, or the wrong key or team ID), `send` fails with
+`ApnsCredentialsRefused`: every push will until the settings change, so alert on it, and don't
+forget the device token.
 
 ## Contract
 
@@ -78,6 +96,8 @@ development for builds Xcode installs, production for TestFlight and the App Sto
 - **A bad key fails the layer,** never a push: a key that isn't P-256 in PKCS #8, or IDs that
   aren't 10 capital letters and digits, fail with `ApnsCredentialsInvalid` when the layer is built,
   so no push is ever answered as rejected for the key, and no caller forgets device tokens over it.
+  A key that imports but that APNs refuses, 403 `InvalidProviderToken`, can only be found by
+  sending: it is `ApnsCredentialsRefused`, an error, never a `Rejected` answer, for the same reason.
 - **Inactive is its own answer.** Only APNs's 410 says a token is gone; `BadDeviceToken` also
   answers a token sent to the wrong environment, and `DeviceTokenNotForTopic` a push with the wrong
   bundle ID, so forgetting tokens on those would forget every token over a setting.

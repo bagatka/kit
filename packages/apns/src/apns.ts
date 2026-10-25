@@ -36,6 +36,20 @@ export class ApnsCredentialsInvalid extends Schema.TaggedError<ApnsCredentialsIn
   }
 }
 
+/**
+ * APNs refused the provider token the credentials signed, answering 403 `InvalidProviderToken`:
+ * the key was revoked, or isn't the key ID's, or the team ID isn't its team's. Every push fails so
+ * until the settings change, so it is never an answer about the push: sending again won't help, and
+ * the device token is fine. `reason` is Apple's.
+ */
+export class ApnsCredentialsRefused extends Schema.TaggedError<ApnsCredentialsRefused>()("ApnsCredentialsRefused", {
+  reason: Schema.String,
+}) {
+  override get message(): string {
+    return `APNs refused the credentials' provider token: ${this.reason}`
+  }
+}
+
 /** APNs took the push. `apnsId` is the ID APNs gave it, which its delivery logs name. */
 export const ApnsAccepted = Schema.TaggedStruct("Accepted", { apnsId: Schema.UndefinedOr(Schema.String) })
 
@@ -108,11 +122,12 @@ export class Apns extends Context.Service<
   {
     /**
      * Sends one push and returns APNs's answer: accepted, inactive, or rejected with Apple's
-     * reason. Fails with `ApnsUnavailable` when APNs may take it later. Pushes share a provider
-     * token, signed once for 50 minutes, even when sent together; one APNs calls expired is signed
-     * again, and the push sent once more.
+     * reason. Fails with `ApnsUnavailable` when APNs may take it later, and with
+     * `ApnsCredentialsRefused` when APNs refuses the credentials themselves, which every push will
+     * until the settings change. Pushes share a provider token, signed once for 50 minutes, even
+     * when sent together; one APNs calls expired is signed again, and the push sent once more.
      */
-    readonly send: (push: ApnsPush) => Effect.Effect<ApnsAnswer, ApnsUnavailable>
+    readonly send: (push: ApnsPush) => Effect.Effect<ApnsAnswer, ApnsUnavailable | ApnsCredentialsRefused>
   }
 >()("@bagatka/apns/apns") {
   /**
@@ -208,6 +223,9 @@ export class Apns extends Context.Service<
           }
           if (response.status === 429 || response.status >= 500) {
             return yield* new ApnsUnavailable({ reason: `APNs answered ${response.status}, ${reason}` })
+          }
+          if (response.status === 403 && reason === "InvalidProviderToken") {
+            return yield* new ApnsCredentialsRefused({ reason })
           }
           return ApnsRejected.make({ status: response.status, reason })
         })
