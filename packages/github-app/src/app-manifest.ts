@@ -117,17 +117,18 @@ export const convertManifest = Effect.fn("convertManifest")(function* (code: str
   // A code is letters and digits GitHub made; anything else isn't one, and stays out of the path.
   const codeLike = /^[A-Za-z0-9_-]{1,200}$/.test(code)
   if (!codeLike) {
-    return yield* new GitHubRefused({ status: 404, reason: "That isn't a code GitHub sends back from a manifest" })
+    return yield* new GitHubRefused({ reason: "That isn't a code GitHub sends back from a manifest" })
   }
-  // The code holds the app's secrets until it is converted: it stays out of messages and traces.
+  // The code holds the app's secrets until it is converted: messages and traces show the path's
+  // template instead.
   const answer = yield* ask(client, {
     method: "POST",
     path: `/app-manifests/${code}/conversions`,
     shownAs: "/app-manifests/{code}/conversions",
-  }).pipe(Effect.provideService(HttpClient.TracerDisabledWhen, () => true))
+  })
   if (answer.status === 404 || answer.status === 422) {
     const reason = yield* reasonOf(answer)
-    return yield* new GitHubRefused({ status: answer.status, reason })
+    return yield* new GitHubRefused({ reason })
   }
   if (answer.status !== 201) {
     return yield* failure(answer)

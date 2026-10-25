@@ -21,8 +21,9 @@ import {
   InstallationsAnswer,
   InstallationTokenAnswer,
 } from "./answers.ts"
-import type { GitHubUnavailable } from "./github-errors.ts"
+import type { Failure } from "./github-errors.ts"
 import { GitHubAppCredentialsInvalid, GitHubRefused } from "./github-errors.ts"
+import type { Question } from "./github-rest.ts"
 import { ask, failure, read, readSecrets, reasonOf } from "./github-rest.ts"
 import type { InstallationId } from "./installation-id.ts"
 import type { Repository } from "./repository.ts"
@@ -91,34 +92,28 @@ export class GitHubApp extends Context.Service<
      * The installation that reaches `repository`; none when the app isn't installed on its account,
      * the installation doesn't reach it, or it doesn't exist. One request, with the app's JWT.
      */
-    readonly installationOf: (
-      repository: Repository,
-    ) => Effect.Effect<Option.Option<Installation>, GitHubRefused | GitHubUnavailable>
+    readonly installationOf: (repository: Repository) => Effect.Effect<Option.Option<Installation>, Failure>
     /** The app's installations: at most 100, the first page GitHub lists. One request. */
-    readonly installations: Effect.Effect<ReadonlyArray<Installation>, GitHubRefused | GitHubUnavailable>
+    readonly installations: Effect.Effect<ReadonlyArray<Installation>, Failure>
     /**
      * The repositories the installation reaches: at most 100, the first page GitHub lists. One
      * request, with its token. Refused with 404 for an installation of another app, or none.
      */
-    readonly repositoriesOf: (
-      installation: InstallationId,
-    ) => Effect.Effect<ReadonlyArray<Repository>, GitHubRefused | GitHubUnavailable>
+    readonly repositoriesOf: (installation: InstallationId) => Effect.Effect<ReadonlyArray<Repository>, Failure>
     /**
      * A token to act as the installation, with every permission and repository it was granted. A
      * token is kept and given again until 5 minutes before it expires, then a new one is issued
      * (one request); calls at the same time share one. Refused with 404 for an installation of
-     * another app, or none, and with 403 for one suspended.
+     * another app, or none; forbidden (`GitHubForbidden`) for one suspended.
      */
-    readonly installationToken: (
-      installation: InstallationId,
-    ) => Effect.Effect<IssuedToken, GitHubRefused | GitHubUnavailable>
+    readonly installationToken: (installation: InstallationId) => Effect.Effect<IssuedToken, Failure>
     /**
      * A token to act on `repository` alone, with every permission the installation that reaches it
      * was granted: `installationOf`, kept a minute, then a token GitHub limits to that repository,
      * kept as `installationToken` keeps one. Refused with 404, saying so, when the app isn't
      * installed on it.
      */
-    readonly tokenFor: (repository: Repository) => Effect.Effect<IssuedToken, GitHubRefused | GitHubUnavailable>
+    readonly tokenFor: (repository: Repository) => Effect.Effect<IssuedToken, Failure>
   }
 >()("@bagatka/github-app/github-app/GitHubApp") {
   /**
@@ -146,13 +141,14 @@ export class GitHubApp extends Context.Service<
         Option.none<{ readonly jwt: Redacted.Redacted; readonly at: number }>(),
       )
 
-      // The app's JWT (RS256): `iat` 60 s in the past, `exp` 9 minutes ahead, `iss` the app. One
-      // signing at a time, so requests sent together share one.
-      const jwt = () =>
+      // The app's JWT (RS256): `iat` 60 s in the past, `exp` 9 minutes ahead, `iss` the app: the one
+      // kept, unless it is 8 minutes old or is `stale`, which GitHub refused. One signing at a time,
+      // so requests sent together share one.
+      const jwt = (stale: Redacted.Redacted | undefined) =>
         SynchronizedRef.modifyEffect(signed, (previous) =>
           Effect.gen(function* () {
             const now = yield* Clock.currentTimeMillis
-            if (Option.isSome(previous) && now - previous.value.at < jwtKept) {
+            if (Option.isSome(previous) && previous.value.jwt !== stale && now - previous.value.at < jwtKept) {
               return [previous.value.jwt, previous] as const
             }
             const seconds = Math.floor(now / 1000)
@@ -166,9 +162,19 @@ export class GitHubApp extends Context.Service<
           }),
         )
 
+      // `question` asked with the app's JWT; one GitHub refuses (401) is signed again, once, and the
+      // question asked once more. A 401 means GitHub did nothing, so asking again is safe.
+      const askAsApp = Effect.fnUntraced(function* (question: Omit<Question, "token">) {
+        const bearer = yield* jwt(undefined)
+        const first = yield* ask(client, { ...question, token: bearer })
+        if (first.status !== 401) {
+          return first
+        }
+        return yield* ask(client, { ...question, token: yield* jwt(bearer) })
+      })
+
       const installationOf = Effect.fn("GitHubApp.installationOf")(function* (repository: Repository) {
-        const bearer = yield* jwt()
-        const answer = yield* ask(client, { method: "GET", path: `/repos/${repository}/installation`, token: bearer })
+        const answer = yield* askAsApp({ method: "GET", path: `/repos/${repository}/installation` })
         if (answer.status === 200) {
           const found = yield* read(InstallationAnswer, answer)
           return Option.some(installationFrom(found))
@@ -180,13 +186,7 @@ export class GitHubApp extends Context.Service<
       })
 
       const installations = Effect.gen(function* () {
-        const bearer = yield* jwt()
-        const answer = yield* ask(client, {
-          method: "GET",
-          path: "/app/installations",
-          urlParams: { per_page: pageSize },
-          token: bearer,
-        })
+        const answer = yield* askAsApp({ method: "GET", path: "/app/installations", urlParams: { per_page: pageSize } })
         if (answer.status !== 200) {
           return yield* failure(answer)
         }
@@ -197,16 +197,11 @@ export class GitHubApp extends Context.Service<
       // A new token for the installation, for `repository` alone when one is given, and how long to
       // keep it: until 5 minutes before it expires, or not at all when that has passed, as on a clock
       // far behind GitHub's.
-      const issue = Effect.fn("GitHubApp.issue")(function* (
-        installation: InstallationId,
-        repository: Repository | undefined,
-      ) {
-        const bearer = yield* jwt()
+      const issue = Effect.fnUntraced(function* (installation: InstallationId, repository: Repository | undefined) {
         const name = repository?.slice(repository.indexOf("/") + 1)
-        const answer = yield* ask(client, {
+        const answer = yield* askAsApp({
           method: "POST",
           path: `/app/installations/${installation}/access_tokens`,
-          token: bearer,
           ...(name === undefined ? {} : { body: { repositories: [name] } }),
         })
         if (answer.status === 404) {
@@ -215,7 +210,7 @@ export class GitHubApp extends Context.Service<
         // GitHub's answer for a repository the installation doesn't reach.
         if (answer.status === 422) {
           const reason = yield* reasonOf(answer)
-          return yield* new GitHubRefused({ status: 422, reason })
+          return yield* new GitHubRefused({ reason })
         }
         if (answer.status !== 201) {
           return yield* failure(answer)
@@ -244,11 +239,10 @@ export class GitHubApp extends Context.Service<
       })
 
       // A token for `repository` alone, from the installation that reaches it.
-      const issueFor = Effect.fn("GitHubApp.issueFor")(function* (repository: Repository) {
+      const issueFor = Effect.fnUntraced(function* (repository: Repository) {
         const installation = yield* Cache.get(reaching, repository)
         if (Option.isNone(installation)) {
           return yield* new GitHubRefused({
-            status: 404,
             reason: `The GitHub App isn't installed on ${repository}: install it on the repository's account, with access to the repository`,
           })
         }
@@ -265,13 +259,22 @@ export class GitHubApp extends Context.Service<
       })
 
       const repositoriesOf = Effect.fn("GitHubApp.repositoriesOf")(function* (installation: InstallationId) {
-        const issued = yield* installationToken(installation)
-        const answer = yield* ask(client, {
+        const question = {
           method: "GET",
           path: "/installation/repositories",
           urlParams: { per_page: pageSize },
-          token: issued.token,
-        })
+        } as const
+        const kept = yield* Cache.get(tokens, installation)
+        const first = yield* ask(client, { ...question, token: kept.issued.token })
+        // A token GitHub revoked before it expires, as when the app was uninstalled and installed
+        // again, is issued again, once.
+        const answer =
+          first.status === 401
+            ? yield* Cache.invalidate(tokens, installation).pipe(
+                Effect.andThen(Cache.get(tokens, installation)),
+                Effect.flatMap((renewed) => ask(client, { ...question, token: renewed.issued.token })),
+              )
+            : first
         if (answer.status !== 200) {
           return yield* failure(answer)
         }
@@ -291,7 +294,7 @@ export class GitHubApp extends Context.Service<
 }
 
 const refusedInstallation = (installation: InstallationId) =>
-  Effect.fail(new GitHubRefused({ status: 404, reason: `GitHub has no installation ${installation} of this app` }))
+  Effect.fail(new GitHubRefused({ reason: `GitHub has no installation ${installation} of this app` }))
 
 const installationFrom = (answer: InstallationAnswer): Installation => ({
   id: answer.id,

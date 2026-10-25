@@ -17,12 +17,14 @@ provides: Cloudflare Workers, Deno, Bun, and Node.
 
 ```ts
 import { GitHubApp, Repository } from "@bagatka/github-app"
-import { Effect, Redacted } from "effect"
+import { Effect, Layer, Redacted, Schedule } from "effect"
+import { FetchHttpClient } from "effect/http"
+
+declare const pemText: string // the private key GitHub gave, "BEGIN RSA PRIVATE KEY"
 
 // In the host, once: fails with GitHubAppCredentialsInvalid if the key or ID can't sign.
-const AppLive = GitHubApp.layer(
-  { appId: 123456, privateKey: Redacted.make(pemText) }, // the PEM GitHub gave, "BEGIN RSA PRIVATE KEY"
-  crypto.subtle,
+const AppLive = GitHubApp.layer({ appId: 123456, privateKey: Redacted.make(pemText) }, crypto.subtle).pipe(
+  Layer.provide(FetchHttpClient.layer),
 )
 
 const program = Effect.gen(function* () {
@@ -30,16 +32,29 @@ const program = Effect.gen(function* () {
   const issued = yield* app.tokenFor(Repository.make("octo-org/notes"))
   // { token: Redacted("ghs_…"), expiresAt }: send it as `Authorization: Bearer` to GitHub's API,
   // for this repository alone.
-})
+  return issued
+}).pipe(
+  // Only an outage is worth asking again, after a while: its `retryAfter` says how long, when
+  // GitHub says.
+  Effect.retry({ while: (error) => error.isRetryable, schedule: Schedule.exponential("1 second"), times: 3 }),
+  Effect.provide(AppLive),
+)
 ```
 
 An app whose credentials come while the product runs, as from the manifest flow below, is made
 with `GitHubApp.make(credentials, crypto.subtle)` instead, once per app, and kept: each client
 has its own JWT and token caches.
 
-A repository the app isn't installed on, or an installation GitHub doesn't have, fails with
-`GitHubRefused`, which asking again won't change. A rate limit, a 5xx, or no answer in 15 s fails
-with `GitHubUnavailable`, with `retryAfter` when GitHub says when to ask again.
+Each failure says who acts, with GitHub's message in `reason`:
+
+| Error | GitHub answered | What to do |
+|---|---|---|
+| `GitHubRefused` | 404 or 422: the app isn't installed on the repository, no such installation, a manifest's code it won't take | Install the app, or ask for something else |
+| `GitHubAppCredentialsRefused` | 401, to a JWT signed again too: the key was revoked or deleted, or the ID isn't its app's | Fix the credentials: every request fails until then |
+| `GitHubForbidden` | 403, not a rate limit: the installation is suspended, or lacks the permission | Unsuspend it, or grant the permission |
+| `GitHubUnavailable` | a rate limit (403 or 429), a 5xx, or no answer in 15 seconds | Ask again after `retryAfter`, a `Duration`, when it has one |
+
+Only `GitHubUnavailable` is `isRetryable`.
 
 Creating the app (GitHub's manifest flow): a page posts `appManifest`'s form to GitHub, the person
 confirms the app there, and GitHub sends them to `redirectUrl` with a `code` and the page's
@@ -91,8 +106,13 @@ differ per deployment, and per app.
   installation and one per repository, and calls at the same time share one request. Which installation reaches a
   repository is kept a minute, so one task's requests ask once, and a reinstalled app, which has a
   new installation, is found within a minute; not being installed isn't kept, so installing takes
-  effect at once. A token GitHub revokes before it expires, as when the app is uninstalled, is
-  refused (401) until then.
+  effect at once. A token GitHub revokes before it expires, as when the app is uninstalled and
+  installed again, is issued again once when this package's own request is refused with it
+  (`repositoriesOf`); one the caller sends is refused (401) until it expires, as this package
+  doesn't see that answer.
+- **Asks again only with fresh credentials** (PATTERNS.md, "Calling a service"): a JWT GitHub
+  refuses (401) is signed again, once, and the request sent once more; RS256 is deterministic, so
+  this helps only a JWT kept from earlier, which GitHub's clock may think expired.
 - **Installations are their own type,** `InstallationId`, so an app's ID can't be passed for one.
 - **Secrets stay out of errors and logs.** Tokens, the JWT, private keys and client and webhook
   secrets are `Redacted` from the moment they are read; an answer holding secrets that isn't
@@ -108,7 +128,11 @@ differ per deployment, and per app.
   `null`, is `false`, never a defect.
 - **A manifest's code stays out of reports:** until it is converted it gives whoever has it the
   app's private key, so messages show its path as `/app-manifests/{code}/conversions`, and its
-  request makes no trace span.
+  request's trace span is this package's, with that as `url.template`, never Effect's `HttpClient`
+  span, which would export the URL.
+- **Traced by operation.** Each method and function is a span (`GitHubApp.tokenFor`,
+  `convertManifest`), and each request in it a client span with OpenTelemetry's HTTP attributes;
+  URLs hold repositories, installations and slugs, never a token. It logs nothing.
 - **Names are one path segment:** an app's slug is an `AppSlug`, letters, digits and `-`, and an
   organization's login is checked the same way, so neither can lead a link or a form elsewhere.
 - **GitHub's limits are the contract's.** `installations` and `repositoriesOf` read one page of

@@ -2,9 +2,9 @@ import { assert, describe, it } from "@effect/vitest"
 import { Cause, DateTime, Deferred, Effect, Exit, Fiber, Layer, Option, Redacted, Schema } from "effect"
 import { TestClock } from "effect/testing"
 
-import type { GitHubAppCredentials, GitHubRefused, GitHubUnavailable } from "../src/index.ts"
+import type { GitHubAppCredentials } from "../src/index.ts"
 import { GitHubApp, InstallationId, Repository } from "../src/index.ts"
-import type { FakeAnswer } from "./fake-github.ts"
+import type { FakeAnswer, Failure } from "./fake-github.ts"
 import { factsOf, fakeGitHub } from "./fake-github.ts"
 import { errorJson, installationJson, installationTokenJson, repositoryJson } from "./github-answers.ts"
 import { newAppKey, openJwt, subtle } from "./web-crypto.ts"
@@ -235,12 +235,69 @@ describe("GitHubApp", () => {
       )
       assert.deepStrictEqual(factsOf(refused), {
         _tag: "GitHubRefused",
-        status: 404,
         reason:
           "The GitHub App isn't installed on octocat/Hello-World: install it on the repository's account, with access to the repository",
       })
       assert.strictEqual(again._tag, "GitHubRefused")
       assert.strictEqual(github.asked.length, 3)
+    }),
+  )
+
+  it.effect("signs its JWT again, once, when GitHub refuses the one it kept, and asks once more", () =>
+    Effect.gen(function* () {
+      const key = yield* newAppKey
+      const github = fakeGitHub({
+        "GET /app/installations": [
+          { status: 200, body: [] },
+          { status: 401, body: errorJson("Bad credentials", 401) },
+          { status: 200, body: [] },
+        ],
+      })
+      yield* withApp(
+        github,
+        credentialsOf(key.pkcs1),
+        Effect.gen(function* () {
+          const app = yield* GitHubApp
+          yield* app.installations
+          // Kept, and refused 5 minutes later, as when GitHub's clock is ahead of this one.
+          yield* TestClock.adjust("5 minutes")
+          return yield* app.installations
+        }),
+      )
+      const bearers = github.asked.map((question) => question.headers["authorization"])
+      assert.strictEqual(bearers.length, 3)
+      assert.strictEqual(bearers[1], bearers[0])
+      assert.notStrictEqual(bearers[2], bearers[1])
+    }),
+  )
+
+  it.effect("issues a token GitHub revoked before it expired again, once, and asks once more", () =>
+    Effect.gen(function* () {
+      const key = yield* newAppKey
+      const github = fakeGitHub({
+        "POST /app/installations/42/access_tokens": [
+          tokenAnswer("ghs_test-token-one-not-real", "2026-10-22T11:00:00Z"),
+          tokenAnswer("ghs_test-token-two-not-real", "2026-10-22T11:00:00Z"),
+        ],
+        "GET /installation/repositories": [
+          { status: 401, body: errorJson("Bad credentials", 401) },
+          { status: 200, body: { total_count: 1, repository_selection: "selected", repositories: [repositoryJson] } },
+        ],
+      })
+      const repositories = yield* withApp(
+        github,
+        credentialsOf(key.pkcs1),
+        Effect.gen(function* () {
+          const app = yield* GitHubApp
+          return yield* app.repositoriesOf(InstallationId.make(42))
+        }),
+      )
+      assert.deepStrictEqual(repositories, [repository])
+      const listed = github.asked.filter((question) => question.url.pathname === "/installation/repositories")
+      assert.deepStrictEqual(
+        listed.map((question) => question.headers["authorization"]),
+        ["Bearer ghs_test-token-one-not-real", "Bearer ghs_test-token-two-not-real"],
+      )
     }),
   )
 
@@ -290,7 +347,6 @@ describe("GitHubApp", () => {
       )
       assert.deepStrictEqual(factsOf(missing), {
         _tag: "GitHubRefused",
-        status: 404,
         reason: "GitHub has no installation 7 of this app",
       })
     }),
@@ -367,7 +423,7 @@ describe("GitHubApp", () => {
           return [first, again]
         }),
       )
-      const refused = { _tag: "GitHubRefused", status: 422, reason: unreachable } as const
+      const refused = { _tag: "GitHubRefused", reason: unreachable } as const
       assert.deepStrictEqual(refusals.map(factsOf), [refused, refused])
       // The installation is asked for once; the refusal isn't kept, so each call asks for a token.
       assert.deepStrictEqual(
@@ -386,12 +442,12 @@ describe("GitHubApp", () => {
       const key = yield* newAppKey
       const issued = tokenAnswer("ghs_test-token-one-not-real", "2026-10-22T11:00:00Z")
       const secondary = "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
-      const cases: ReadonlyArray<Asking<GitHubRefused | GitHubUnavailable> & { readonly facts: object }> = [
+      const cases: ReadonlyArray<Asking<Failure> & { readonly facts: object }> = [
         // The app's JWT, refused.
         {
           answers: { "GET /app/installations": [{ status: 401, body: errorJson("Bad credentials", 401) }] },
           call: (app) => app.installations,
-          facts: { _tag: "GitHubRefused", status: 401, reason: "Bad credentials" },
+          facts: { _tag: "GitHubAppCredentialsRefused", reason: "Bad credentials" },
         },
         // An installation's token, revoked before it expires.
         {
@@ -400,7 +456,7 @@ describe("GitHubApp", () => {
             "GET /installation/repositories": [{ status: 401, body: errorJson("Bad credentials", 401) }],
           },
           call: (app) => app.repositoriesOf(InstallationId.make(42)),
-          facts: { _tag: "GitHubRefused", status: 401, reason: "Bad credentials" },
+          facts: { _tag: "GitHubAppCredentialsRefused", reason: "Bad credentials" },
         },
         // A suspended installation: a 403 with requests left is a refusal.
         {
@@ -410,7 +466,7 @@ describe("GitHubApp", () => {
             ],
           },
           call: (app) => app.installationToken(InstallationId.make(42)),
-          facts: { _tag: "GitHubRefused", status: 403, reason: "This installation has been suspended" },
+          facts: { _tag: "GitHubForbidden", reason: "This installation has been suspended" },
         },
         // The window's requests spent: until it resets.
         {
@@ -427,7 +483,7 @@ describe("GitHubApp", () => {
           facts: {
             _tag: "GitHubUnavailable",
             reason: "API rate limit exceeded for app ID 123456.",
-            retryAfter: "2026-10-22T10:30:00.000Z",
+            retryAfter: 1800,
           },
         },
         // A secondary rate limit: after `retry-after`, when GitHub sends it, else a minute from now.
@@ -438,7 +494,7 @@ describe("GitHubApp", () => {
             ],
           },
           call: (app) => app.installations,
-          facts: { _tag: "GitHubUnavailable", reason: secondary, retryAfter: "2026-10-22T10:00:30.000Z" },
+          facts: { _tag: "GitHubUnavailable", reason: secondary, retryAfter: 30 },
         },
         // `retry-after` as an HTTP date, which HTTP allows: that time, or now for one gone by.
         {
@@ -451,7 +507,7 @@ describe("GitHubApp", () => {
             ],
           },
           call: (app) => app.installations,
-          facts: { _tag: "GitHubUnavailable", reason: "HTTP 429", retryAfter: "2026-10-22T10:01:30.000Z" },
+          facts: { _tag: "GitHubUnavailable", reason: "HTTP 429", retryAfter: 90 },
         },
         {
           answers: {
@@ -460,20 +516,20 @@ describe("GitHubApp", () => {
             ],
           },
           call: (app) => app.installations,
-          facts: { _tag: "GitHubUnavailable", reason: "HTTP 429", retryAfter: "2026-10-22T10:00:00.000Z" },
+          facts: { _tag: "GitHubUnavailable", reason: "HTTP 429", retryAfter: 0 },
         },
         {
           answers: {
             "GET /app/installations": [{ status: 403, body: errorJson(secondary, 403), headers: rateLimit(4999) }],
           },
           call: (app) => app.installations,
-          facts: { _tag: "GitHubUnavailable", reason: secondary, retryAfter: "2026-10-22T10:01:00.000Z" },
+          facts: { _tag: "GitHubUnavailable", reason: secondary, retryAfter: 60 },
         },
         // A 429, even without a message.
         {
           answers: { "GET /app/installations": [{ status: 429, headers: rateLimit(4999) }] },
           call: (app) => app.installations,
-          facts: { _tag: "GitHubUnavailable", reason: "HTTP 429", retryAfter: "2026-10-22T10:01:00.000Z" },
+          facts: { _tag: "GitHubUnavailable", reason: "HTTP 429", retryAfter: 60 },
         },
         // None left, and no time it resets: a minute from now.
         {
@@ -490,7 +546,7 @@ describe("GitHubApp", () => {
           facts: {
             _tag: "GitHubUnavailable",
             reason: "API rate limit exceeded for app ID 123456.",
-            retryAfter: "2026-10-22T10:01:00.000Z",
+            retryAfter: 60,
           },
         },
         // A failure of GitHub's, its JSON without a message.
@@ -510,8 +566,9 @@ describe("GitHubApp", () => {
           }),
         )
         assert.deepStrictEqual(factsOf(error), facts)
-        // What a log shows carries the reason.
+        // What a log shows carries the reason, and only an outage is worth asking again.
         assert.include(error.message, error.reason)
+        assert.strictEqual(error.isRetryable, error._tag === "GitHubUnavailable")
       }
     }),
   )
@@ -543,7 +600,7 @@ describe("GitHubApp", () => {
     Effect.gen(function* () {
       const key = yield* newAppKey
       const cases: ReadonlyArray<
-        Asking<GitHubRefused | GitHubUnavailable> & {
+        Asking<Failure> & {
           readonly says: ReadonlyArray<string>
           readonly never?: ReadonlyArray<string>
         }

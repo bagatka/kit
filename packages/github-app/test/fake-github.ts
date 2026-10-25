@@ -1,8 +1,8 @@
-import { DateTime, Deferred, Effect, Layer, Schema } from "effect"
+import { Deferred, Duration, Effect, Layer, Schema } from "effect"
 import type { HttpClientRequest } from "effect/http"
 import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http"
 
-import type { GitHubRefused, GitHubUnavailable } from "../src/index.ts"
+import type { GitHubAppCredentialsRefused, GitHubForbidden, GitHubRefused, GitHubUnavailable } from "../src/index.ts"
 import { errorJson } from "./github-answers.ts"
 
 // The runtime's `Response` and `TextDecoder`, which tests outside a runtime with its types can't
@@ -47,15 +47,18 @@ const bodyOf = (request: HttpClientRequest.HttpClientRequest) =>
     ? decodeJson(request.body.text ?? new TextDecoder().decode(request.body.body)).pipe(Effect.orDie)
     : Effect.void
 
-/** An error's tag and fields, as plain data: `retryAfter` as ISO text, when it has one. */
-export const factsOf = (error: GitHubRefused | GitHubUnavailable) =>
-  error._tag === "GitHubRefused"
-    ? { _tag: error._tag, status: error.status, reason: error.reason }
-    : {
+/** An error's tag and fields, as plain data: `retryAfter` in seconds, when it has one. */
+export const factsOf = (error: Failure) =>
+  error._tag === "GitHubUnavailable"
+    ? {
         _tag: error._tag,
         reason: error.reason,
-        ...(error.retryAfter === undefined ? {} : { retryAfter: DateTime.formatIso(error.retryAfter) }),
+        ...(error.retryAfter === undefined ? {} : { retryAfter: Duration.toSeconds(error.retryAfter) }),
       }
+    : { _tag: error._tag, reason: error.reason }
+
+/** Every way a request to GitHub can fail. */
+export type Failure = GitHubAppCredentialsRefused | GitHubForbidden | GitHubRefused | GitHubUnavailable
 
 /**
  * A fake GitHub: answers `"<METHOD> <path>"` with the answers listed for it, one after another and

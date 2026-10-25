@@ -8,7 +8,13 @@ export { appManifest, convertManifest, installLink } from "./app-manifest.ts"
 export { AppSlug } from "./app-slug.ts"
 export type { GitHubAppCredentials, GitHubAppCrypto, Installation, IssuedToken } from "./github-app.ts"
 export { GitHubApp } from "./github-app.ts"
-export { GitHubAppCredentialsInvalid, GitHubRefused, GitHubUnavailable } from "./github-errors.ts"
+export {
+  GitHubAppCredentialsInvalid,
+  GitHubAppCredentialsRefused,
+  GitHubForbidden,
+  GitHubRefused,
+  GitHubUnavailable,
+} from "./github-errors.ts"
 export { InstallationId } from "./installation-id.ts"
 export { Repository } from "./repository.ts"
 export type { WebhookCrypto } from "./webhook-signature.ts"

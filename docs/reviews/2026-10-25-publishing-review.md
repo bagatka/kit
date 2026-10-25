@@ -76,3 +76,23 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
 - **Found:** Effect's HTTP span put APNs's device token, a device's identifier, in `url.full` and
   `url.path` of every push. apns now writes that span itself with `url.template`, and a test that
   fails without it checks that the token appears in no span.
+
+## `@bagatka/github-app`
+
+- **Contract confirmed, brought to "Calling a service".** `GitHubRefused` held 401, 403, 404 and
+  422, told apart by `status`. Now `GitHubAppCredentialsRefused` (401, to a JWT signed again too),
+  `GitHubForbidden` (403, not a rate limit: a suspended installation, a missing permission), and
+  `GitHubRefused` (404 and 422) without `status`; `GitHubUnavailable`'s `retryAfter` is a
+  `Duration`, as Effect's `AiError` has it, where it was a time; every error has `isRetryable`.
+- **Asks again only with fresh credentials:** a JWT GitHub refuses is signed again once, and a
+  token GitHub revoked before it expired is issued again once for the package's own request. RS256
+  is deterministic, so signing again in the same second gives the same JWT: it helps a JWT kept
+  from earlier.
+- **Traced by operation:** the four internal steps that were spans aren't; the manifest's request,
+  whose URL holds the code, is a client span of the package's own with `url.template`, where it
+  had no span.
+- **The README's example compiles** with an `HttpClient` and a retry by `isRetryable`; checked
+  against the installed tarball, and against GitHub's API from Node 26 with a made-up app, which
+  GitHub refused (401): now `GitHubAppCredentialsRefused`, before `GitHubRefused`.
+- **Left as is:** a token the caller sends and GitHub revoked is refused until it expires, as the
+  package doesn't see that answer; the README says so.

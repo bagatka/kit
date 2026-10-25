@@ -132,11 +132,10 @@ describe("convertManifest", () => {
       ]).pipe(Effect.provide(github.layer))
       const notACode = {
         _tag: "GitHubRefused",
-        status: 404,
         reason: "That isn't a code GitHub sends back from a manifest",
       } as const
       assert.deepStrictEqual(refusals.map(factsOf), [
-        { _tag: "GitHubRefused", status: 404, reason: "Not Found" },
+        { _tag: "GitHubRefused", reason: "Not Found" },
         notACode,
         notACode,
       ])
@@ -160,7 +159,7 @@ describe("convertManifest", () => {
         "POST /app-manifests/abc123/conversions": [{ status: 422, body: errorJson("Validation Failed", 422) }],
       })
       const refused = yield* convertManifest("abc123").pipe(Effect.flip, Effect.provide(github.layer))
-      assert.deepStrictEqual(factsOf(refused), { _tag: "GitHubRefused", status: 422, reason: "Validation Failed" })
+      assert.deepStrictEqual(factsOf(refused), { _tag: "GitHubRefused", reason: "Validation Failed" })
     }),
   )
 
@@ -188,8 +187,10 @@ describe("convertManifest", () => {
       const defect = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
       assert.include(typeof defect === "string" ? defect : "", "/app-manifests/{code}/conversions")
       assert.notInclude(typeof defect === "string" ? defect : "", "abc123secret")
-      // Spans were made, and none of them holds the code: its request makes none.
-      assert.isNotEmpty(spans)
+      // Its request is a client span with the path's template, and no span holds the code.
+      const request = spans.find((span) => span.kind === "client")
+      assert.strictEqual(request?.attributes.get("url.template"), "/app-manifests/{code}/conversions")
+      assert.strictEqual(request?.attributes.get("http.response.status_code"), 400)
       const traced = spans.flatMap((span) => Array.from(span.attributes.values(), String).concat(span.name))
       assert.isFalse(
         traced.some((text) => text.includes("abc123secret")),

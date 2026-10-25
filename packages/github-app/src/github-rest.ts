@@ -1,14 +1,13 @@
-import { DateTime, Duration, Effect, Option, Schema } from "effect"
+import { Clock, Duration, Effect, Option, Schema } from "effect"
 import type { Redacted } from "effect"
-import type { HttpClient } from "effect/http"
-import { Headers, HttpClientRequest } from "effect/http"
+import { Headers, HttpClient, HttpClientRequest } from "effect/http"
 
 import { ErrorAnswer, RateLimitHeaders } from "./answers.ts"
-import { GitHubRefused, GitHubUnavailable } from "./github-errors.ts"
+import { GitHubAppCredentialsRefused, GitHubForbidden, GitHubUnavailable } from "./github-errors.ts"
 
 // GitHub's REST API as the app asks it: one request with the headers GitHub
-// asks for, its answer read whole within 15 s, and what a status means when the caller doesn't read
-// it itself.
+// asks for, its answer read whole within 15 seconds, and what a status means when the caller doesn't
+// read it itself.
 
 const api = "https://api.github.com"
 const apiVersion = "2022-11-28"
@@ -21,7 +20,11 @@ export interface Question {
   readonly method: "GET" | "POST" | "PATCH"
   /** The path under `https://api.github.com`, its segments already safe. */
   readonly path: string
-  /** The path as messages show it, when it holds a secret: `/app-manifests/{code}/conversions`. */
+  /**
+   * The path as messages and traces show it, when it holds a secret:
+   * `/app-manifests/{code}/conversions`. The request's span is then this package's, with the path as
+   * `url.template`, since Effect's would export the URL.
+   */
   readonly shownAs?: string
   readonly urlParams?: Readonly<Record<string, string | number>>
   /** The bearer: a token or the app's JWT; absent for a request GitHub takes unauthenticated. */
@@ -39,8 +42,8 @@ export interface Answer {
   readonly body: string
 }
 
-/** Asks GitHub `question` once: unavailable when no answer comes, or none in 15 s. */
-export const ask = Effect.fn("GitHub.ask")(function* (client: HttpClient.HttpClient, question: Question) {
+/** Asks GitHub `question` once: unavailable when no answer comes, or none in 15 seconds. */
+export const ask = Effect.fnUntraced(function* (client: HttpClient.HttpClient, question: Question) {
   const unauthorized = HttpClientRequest.make(question.method)(`${api}${question.path}`).pipe(
     HttpClientRequest.setUrlParams(question.urlParams ?? {}),
     HttpClientRequest.setHeaders({
@@ -52,7 +55,7 @@ export const ask = Effect.fn("GitHub.ask")(function* (client: HttpClient.HttpCli
   const authorized =
     question.token === undefined ? unauthorized : HttpClientRequest.bearerToken(unauthorized, question.token)
   const request = yield* withBody(authorized, question.body)
-  return yield* client.execute(request).pipe(
+  const answered = client.execute(request).pipe(
     Effect.flatMap((response) =>
       Effect.map(response.text, (body): Answer => ({
         method: question.method,
@@ -62,9 +65,33 @@ export const ask = Effect.fn("GitHub.ask")(function* (client: HttpClient.HttpCli
         body,
       })),
     ),
+  )
+  const traced =
+    question.shownAs === undefined
+      ? answered
+      : answered.pipe(
+          Effect.tap((answer) =>
+            Effect.annotateCurrentSpan({
+              "http.response.status_code": answer.status,
+              ...(answer.status >= 400 ? { "error.type": String(answer.status) } : {}),
+            }),
+          ),
+          Effect.provideService(HttpClient.TracerDisabledWhen, () => true),
+          Effect.withSpan(question.method, {
+            kind: "client",
+            attributes: {
+              "http.request.method": question.method,
+              "server.address": "api.github.com",
+              "server.port": 443,
+              "url.scheme": "https",
+              "url.template": question.shownAs,
+            },
+          }),
+        )
+  return yield* traced.pipe(
     Effect.timeout(answerTimeout),
     Effect.catchTags({
-      TimeoutError: () => Effect.fail(new GitHubUnavailable({ reason: "GitHub didn't answer in 15 s" })),
+      TimeoutError: () => Effect.fail(new GitHubUnavailable({ reason: "GitHub didn't answer in 15 seconds" })),
       HttpClientError: () => Effect.fail(new GitHubUnavailable({ reason: "GitHub didn't answer" })),
     }),
   )
@@ -74,20 +101,21 @@ const withBody = (request: HttpClientRequest.HttpClientRequest, body: Schema.Jso
   body === undefined ? Effect.succeed(request) : HttpClientRequest.bodyJson(request, body).pipe(Effect.orDie)
 
 /**
- * What an answer means when the method asking doesn't read its status: refused, unavailable, or,
- * for a status GitHub doesn't document there, a defect.
+ * What an answer means when the method asking doesn't read its status: the credentials refused (a
+ * 401 after a JWT signed again, or after a token just issued), forbidden, unavailable, or, for a
+ * status GitHub doesn't document there, a defect.
  */
-export const failure = Effect.fn("GitHub.failure")(function* (answer: Answer) {
+export const failure = Effect.fnUntraced(function* (answer: Answer) {
   const reason = yield* reasonOf(answer)
   if (answer.status === 401) {
-    return yield* new GitHubRefused({ status: answer.status, reason })
+    return yield* new GitHubAppCredentialsRefused({ reason })
   }
   if (answer.status === 403 || answer.status === 429) {
-    const limited = yield* rateLimitedUntil(answer, reason)
+    const limited = yield* rateLimitedFor(answer, reason)
     if (Option.isSome(limited)) {
       return yield* new GitHubUnavailable({ reason, retryAfter: limited.value })
     }
-    return yield* new GitHubRefused({ status: answer.status, reason })
+    return yield* new GitHubForbidden({ reason })
   }
   if (answer.status >= 500) {
     return yield* new GitHubUnavailable({ reason })
@@ -128,24 +156,24 @@ export const reasonOf = (answer: Answer) =>
     Effect.orElseSucceed(() => `HTTP ${answer.status}`),
   )
 
-// When a 403 or 429 is a rate limit, when to ask again: after `retry-after`, at the limit's reset
-// when none are left, else a minute from now, as GitHub's documentation asks. None for a refusal.
-const rateLimitedUntil = Effect.fn("GitHub.rateLimitedUntil")(function* (answer: Answer, reason: string) {
+// When a 403 or 429 is a rate limit, how long to wait: `retry-after`, until the limit's reset when
+// none are left, else a minute, as GitHub's documentation asks. None for a refusal.
+const rateLimitedFor = Effect.fnUntraced(function* (answer: Answer, reason: string) {
   const headers = yield* Schema.decodeUnknownEffect(RateLimitHeaders)(answer.headers).pipe(
     Effect.catchTag("SchemaError", (error) =>
       Effect.die(`GitHub's rate-limit headers aren't what it documents: ${error.message}`),
     ),
   )
-  const now = yield* DateTime.now
+  const now = yield* Clock.currentTimeMillis
   const retryAfter = headers["retry-after"]
   if (retryAfter !== undefined) {
-    return Option.some(DateTime.addDuration(now, Headers.retryAfterDelay(retryAfter, DateTime.toEpochMillis(now))))
+    return Option.some(Headers.retryAfterDelay(retryAfter, now))
   }
   const exhausted = headers["x-ratelimit-remaining"] === "0"
   const resetsAt = headers["x-ratelimit-reset"]
   if (exhausted && resetsAt !== undefined) {
-    return Option.some(DateTime.fromEpochSeconds(resetsAt))
+    return Option.some(Duration.millis(Math.max(0, resetsAt * 1000 - now)))
   }
   const limited = exhausted || answer.status === 429 || /rate limit/i.test(reason)
-  return limited ? Option.some(DateTime.add(now, { minutes: 1 })) : Option.none<DateTime.Utc>()
+  return limited ? Option.some(Duration.minutes(1)) : Option.none<Duration.Duration>()
 })
