@@ -106,6 +106,10 @@ types (`"types": []`), so no package can reach a global that some runtime lacks.
 - **Every platform type is listed in `tools/src/platform-types.ts`.** `bun run check` builds a
   program that passes the DOM's and Workers' objects to each, so a type that would refuse a runtime's
   object fails here.
+- **Data the platform also types fits the platform's type,** such as WebAuthn's JSON: a package's
+  values that go to the DOM's API fit its type there (`toDom`), and the DOM's values that come to the
+  package fit the package's (`fromDom`), listed in the same file. Arrays that go to the DOM are
+  `Schema.mutable`, since its types take mutable arrays (`packages/webauthn/src/webauthn.ts`).
 - **Encoding text** uses `TextEncoder` and `TextDecoder`, declared in the file that uses them, in
   the package's terms (`packages/webauthn/src/webauthn.ts`, at its end).
 - **Randomness, time, and digests inside Effect code** come from Effect's services: `Crypto`,
@@ -267,7 +271,7 @@ The configuration files are the specification; this entry says what each one own
 | `bunfig.toml` | Isolated installs, and exact versions from `bun add` |
 | `vitest.config.ts` (root) | Which tests `bun run test` runs |
 | `tools/src/workspace-rules.ts` | The dependency rules the check enforces |
-| `tools/src/platform-types.ts` | The platform types the check proves each runtime's objects fit |
+| `tools/src/platform-types.ts` | The platform types the check proves each runtime's objects, and the DOM's types, fit |
 | `tools/src/published-manifest.ts` | What npm's `package.json` says |
 | `.github/workflows/check.yml` | CI: `bun run check` and `bun run test` on every push |
 | `.github/workflows/publish.yml` | Publishing to npm, and how npm signs it in |
@@ -362,7 +366,7 @@ What it shows, for OpenTelemetry through Effect's tracer, logger and metrics (`e
 2. Write the contract in `src/index.ts` and a caller example in the README before the
    implementation.
 3. Test it through its contract, worst cases included (entry 10).
-4. A platform object it takes goes in `tools/src/platform-types.ts`.
+4. A platform object it takes, or data the DOM also types, goes in `tools/src/platform-types.ts`.
 5. Add it to the parts table in `ARCHITECTURE.md`.
 6. `bun run check` and `bun run test` pass. Review its contract with the founder before it is
    published.

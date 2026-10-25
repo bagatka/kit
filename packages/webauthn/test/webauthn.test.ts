@@ -1,14 +1,14 @@
 import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto"
 import { assert, describe, it } from "@effect/vitest"
 import { Cause, Crypto, Effect, Exit, Layer, Result, Schema } from "effect"
-import { Base64Url } from "effect/encoding"
+import { Base64Url, Hex } from "effect/encoding"
 
-import type { AuthenticatorCrypto, Ceremony, RegistrationExpected } from "../src/index.ts"
+import type { AuthenticatorCrypto, Ceremony, RegistrationExpected, RegistrationResponseJSON } from "../src/index.ts"
 import {
-  AuthenticationOptions,
   authenticationOptions,
   challengeOf,
-  RegistrationOptions,
+  PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
   registrationOptions,
   softwareAuthenticator,
   verifyAuthentication,
@@ -55,6 +55,42 @@ type Answer = { readonly id: string; readonly type: string; readonly response: R
 const withData = <A extends Answer>(answer: A, change: (data: Uint8Array) => Uint8Array): A => ({
   ...answer,
   response: { ...answer.response, authenticatorData: changed(answer.response.authenticatorData, change) },
+})
+// The authenticator data a registration's attestation object holds, which the software
+// authenticator also sends beside it, as browsers do; and an attestation object of format `none`
+// around changed data, written here as CBOR by hand (RFC 8949), apart from the package's own.
+const attestedDataOf = (registration: RegistrationResponseJSON) => {
+  const response: object = registration.response
+  return "authenticatorData" in response && typeof response.authenticatorData === "string"
+    ? bytes(response.authenticatorData)
+    : new Uint8Array(0)
+}
+const ascii = (text: string) => Uint8Array.from(text, (character) => character.charCodeAt(0))
+const noneAttestation = (data: Uint8Array) =>
+  Uint8Array.of(
+    0xa3,
+    0x63,
+    ...ascii("fmt"),
+    0x64,
+    ...ascii("none"),
+    0x67,
+    ...ascii("attStmt"),
+    0xa0,
+    0x68,
+    ...ascii("authData"),
+    0x59,
+    data.length >> 8,
+    data.length & 0xff,
+    ...data,
+  )
+// A CBOR text string of a short name: an attestation object's key, or its format.
+const key = (name: string) => [0x60 | name.length, ...ascii(name)]
+const withAttestedData = (registration: RegistrationResponseJSON, change: (data: Uint8Array) => Uint8Array) => ({
+  ...registration,
+  response: {
+    ...registration.response,
+    attestationObject: Base64Url.encode(noneAttestation(change(attestedDataOf(registration)))),
+  },
 })
 const withByte = (index: number, change: (byte: number) => number) => (data: Uint8Array) =>
   Uint8Array.from(data, (byte, at) => (at === index ? change(byte) : byte))
@@ -186,7 +222,7 @@ describe("passkeys", () => {
     Effect.gen(function* () {
       const authenticator = yield* newAuthenticator
       const registration = yield* authenticator.register(ceremony, account)
-      const changedData = (change: (data: Uint8Array) => Uint8Array) => withData(registration, change)
+      const changedData = (change: (data: Uint8Array) => Uint8Array) => withAttestedData(registration, change)
       const reasons = [
         // Cut after the counter, though it says a credential follows.
         changedData((data) => data.subarray(0, 37)),
@@ -382,7 +418,7 @@ describe("passkeys", () => {
   it.effect("takes its challenges from the Crypto service the caller provides, and never fails", () =>
     Effect.gen(function* () {
       // A platform without random bytes is a defect, never a failure a caller must handle.
-      const making: Effect.Effect<AuthenticationOptions, never, Crypto.Crypto> = authenticationOptions({
+      const making: Effect.Effect<PublicKeyCredentialRequestOptionsJSON, never, Crypto.Crypto> = authenticationOptions({
         rpId: "notes.example",
       })
       const options = yield* making
@@ -406,9 +442,13 @@ describe("passkeys", () => {
       const cases: ReadonlyArray<readonly [unknown, RegistrationExpected, string]> = [
         [{ ...registration, type: "password" }, expected, "The credential isn't a public-key credential"],
         [notJson, expected, "The client data isn't WebAuthn's JSON"],
-        [withData(registration, (data) => data.subarray(0, 36)), expected, "The authenticator data is too short"],
         [
-          withData(
+          withAttestedData(registration, (data) => data.subarray(0, 36)),
+          expected,
+          "The authenticator data is too short",
+        ],
+        [
+          withAttestedData(
             registration,
             withByte(0, (byte) => byte ^ 1),
           ),
@@ -416,7 +456,7 @@ describe("passkeys", () => {
           "The passkey isn't for this site",
         ],
         [
-          withData(
+          withAttestedData(
             registration,
             withByte(flagsAt, (byte) => byte & ~userPresent),
           ),
@@ -424,7 +464,7 @@ describe("passkeys", () => {
           "The person wasn't verified",
         ],
         [
-          withData(
+          withAttestedData(
             registration,
             withByte(flagsAt, (byte) => byte & ~attestedData),
           ),
@@ -434,7 +474,7 @@ describe("passkeys", () => {
         [{ ...registration, id: other.id }, expected, "The credential's ID isn't the one its data names"],
         // An ID of 1,000 bytes, within its bounds, in data that ends long before it.
         [
-          withData(registration, (data) => withByte(54, () => 0xe8)(withByte(53, () => 0x03)(data))),
+          withAttestedData(registration, (data) => withByte(54, () => 0xe8)(withByte(53, () => 0x03)(data))),
           expected,
           "The credential's ID is out of bounds: 16 to 1023 bytes, within the data",
         ],
@@ -448,7 +488,7 @@ describe("passkeys", () => {
         assert.strictEqual(yield* reasonOf(verifyRegistration(subtle, answer, ceremonyExpected)), reason)
       }
       // Bytes after the key are extensions when the data says so; a handle may be 64 bytes.
-      const withExtensions = withData(registration, (data) =>
+      const withExtensions = withAttestedData(registration, (data) =>
         Uint8Array.of(...withByte(flagsAt, (byte) => byte | extensionData)(data), 0xa0),
       )
       for (const handle of [Base64Url.encode(new Uint8Array(64).fill(7)), "AA"]) {
@@ -531,8 +571,248 @@ describe("passkeys", () => {
         excludeIds: ["c29tZS1rZXk"],
       })
       const authentication = yield* authenticationOptions({ rpId: "notes.example" })
-      assert.deepStrictEqual(yield* Schema.decodeEffect(RegistrationOptions)(registration), registration)
-      assert.deepStrictEqual(yield* Schema.decodeEffect(AuthenticationOptions)(authentication), authentication)
+      assert.deepStrictEqual(
+        yield* Schema.decodeEffect(PublicKeyCredentialCreationOptionsJSON)(registration),
+        registration,
+      )
+      assert.deepStrictEqual(
+        yield* Schema.decodeEffect(PublicKeyCredentialRequestOptionsJSON)(authentication),
+        authentication,
+      )
     }).pipe(Effect.provide(BrowserCrypto.layer)),
+  )
+})
+
+// WebAuthn Level 3's test vectors (section 16, https://www.w3.org/TR/webauthn-3/), for
+// `example.org`: 16.7, an ES256 passkey with packed attestation, whose statement isn't checked;
+// and 16.2's registration, without attestation, whose person wasn't verified.
+const fromHex = (hex: string) => Base64Url.encode(Result.getOrElse(Hex.decode(hex), () => new Uint8Array(0)))
+const packed = {
+  registration: {
+    id: fromHex("c9a6f5b3462d02873fea0c56862234f99f081728084e511bb7760201a89054a5"),
+    type: "public-key",
+    response: {
+      clientDataJSON: fromHex(
+        [
+          "7b2274797065223a22776562617574686e2e637265617465222c226368616c6c656e6765223a227752684b5839333442",
+          "4634543345663153324831706c61325a725751475046746877365356756d56494249222c226f726967696e223a226874",
+          "7470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73652c226578747261446174",
+          "61223a22636c69656e74446174614a534f4e206d617920626520657874656e6465642077697468206164646974696f6e",
+          "616c206669656c647320696e20746865206675747572652c207375636820617320746869733a20396138624e596a4b43",
+          "6757724258552d66436c316167227d",
+        ].join(""),
+      ),
+      attestationObject: fromHex(
+        [
+          "a363666d74667061636b65646761747453746d74a363616c6726637369675847304502203f19ec4b229f46ab8c45eff2",
+          "9b904ff10c0390dc40bf1216f04a78f4ceba3425022100fe7041a32759aff05a0f9f26c70a999c7a284451ba89234a1d",
+          "3483c25e21925b637835638159022530820221308201c8a00302010202110088c220f83c8ef1feafe94deae45faad030",
+          "0a06082a8648ce3d0403023062311e301c06035504030c15576562417574686e207465737420766563746f7273310c30",
+          "0a060355040a0c0357334331253023060355040b0c1c41757468656e74696361746f72204174746573746174696f6e20",
+          "4341310b30090603550406130241413020170d3234303130313030303030305a180f3330323430313031303030303030",
+          "5a305f311e301c06035504030c15576562417574686e207465737420766563746f7273310c300a060355040a0c035733",
+          "4331223020060355040b0c1941757468656e74696361746f72204174746573746174696f6e310b300906035504061302",
+          "41413059301306072a8648ce3d020106082a8648ce3d03010703420004a91ba4389409dd38a428141940ca8feb1ac0d7",
+          "b4350558104a3777a49322f3798440f378b3398ab2d3bb7bf91322c92eb23556f59ad0a836fec4c7663b0e4dc3a36030",
+          "5e300c0603551d130101ff04023000300e0603551d0f0101ff040403020780301d0603551d0e04160414a589ba72d060",
+          "842ab11f74fb246bdedab16f9b9b301f0603551d2304183016801445aff715b0dd786741fee996ebc16547a3931b1e30",
+          "0a06082a8648ce3d040302034700304402201726b9d85ecd8a5ed51163722ca3a20886fd9b242a0aa0453d442116075d",
+          "efd502207ef471e530ac87961a88a7f0d0c17b091ffc6b9238d30f79f635b417be5910e768617574684461746158a4bf",
+          "abc37432958b063360d3ad6461c9c4735ae7f8edd46592a5e0f01452b2e4b54d00000000876ca4f52071c3e9b25509ef",
+          "2cdf7ed60020c9a6f5b3462d02873fea0c56862234f99f081728084e511bb7760201a89054a5a5010203262001215820",
+          "1cf27f25da591208a4239c2e324f104f585525479a29edeedd830f48e77aeae522582059e4b7da6c0106e206ce390c93",
+          "ab98a15a5ec3887e57f0cc2bece803b920c423",
+        ].join(""),
+      ),
+    },
+  },
+  registrationChallenge: fromHex("c1184a5fddf8045e13dc47f54b61f5a656b666b59018f16d870e9256e9952012"),
+  authentication: {
+    id: fromHex("c9a6f5b3462d02873fea0c56862234f99f081728084e511bb7760201a89054a5"),
+    type: "public-key",
+    response: {
+      clientDataJSON: fromHex(
+        [
+          "7b2274797065223a22776562617574686e2e676574222c226368616c6c656e6765223a22735242767047705876764634",
+          "46524841565833496d4b4130453958773858306b526a44426c4d6668726255222c226f726967696e223a226874747073",
+          "3a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73652c22657874726144617461223a",
+          "22636c69656e74446174614a534f4e206d617920626520657874656e6465642077697468206164646974696f6e616c20",
+          "6669656c647320696e20746865206675747572652c207375636820617320746869733a20415a4d77794d78496244382d",
+          "756775464e7036723851227d",
+        ].join(""),
+      ),
+      authenticatorData: fromHex("bfabc37432958b063360d3ad6461c9c4735ae7f8edd46592a5e0f01452b2e4b50d00000000"),
+      signature: fromHex(
+        [
+          "30450220694969d3ee928de6f02ef23a9c644d7d779916451734a94b432542f498a1ebe90221008b0819c824218a9715",
+          "2cd099c55bfb1477b29d900a49a64018314f9bfccda163",
+        ].join(""),
+      ),
+      // The vectors' passkey names no account; this one names the account it was registered for.
+      userHandle: "dXNlcg",
+    },
+  },
+  authenticationChallenge: fromHex("b1106fa46a57bef1781511c0557dc898a03413d5f0f17d244630c194c7e1adb5"),
+}
+const unverified = {
+  id: fromHex("f91f391db4c9b2fde0ea70189cba3fb63f579ba6122b33ad94ff3ec330084be4"),
+  type: "public-key",
+  response: {
+    clientDataJSON: fromHex(
+      [
+        "7b2274797065223a22776562617574686e2e637265617465222c226368616c6c656e6765223a22414d4d507434557878",
+        "475453746e63647134313759447742466938767049612d7077386f4f755657345441222c226f726967696e223a226874",
+        "7470733a2f2f6578616d706c652e6f7267222c2263726f73734f726967696e223a66616c73652c226578747261446174",
+        "61223a22636c69656e74446174614a534f4e206d617920626520657874656e6465642077697468206164646974696f6e",
+        "616c206669656c647320696e20746865206675747572652c207375636820617320746869733a20426b5165446a646354",
+        "427258426941774a544c453551227d",
+      ].join(""),
+    ),
+    attestationObject: fromHex(
+      [
+        "a363666d74646e6f6e656761747453746d74a068617574684461746158a4bfabc37432958b063360d3ad6461c9c4735a",
+        "e7f8edd46592a5e0f01452b2e4b559000000008446ccb9ab1db374750b2367ff6f3a1f0020f91f391db4c9b2fde0ea70",
+        "189cba3fb63f579ba6122b33ad94ff3ec330084be4a5010203262001215820afefa16f97ca9b2d23eb86ccb64098d20d",
+        "b90856062eb249c33a9b672f26df61225820930a56b87a2fca66334b03458abf879717c12cc68ed73290af2e2664796b",
+        "9220",
+      ].join(""),
+    ),
+  },
+}
+const vectorSite = { origins: ["https://example.org"], rpId: "example.org" }
+
+describe("WebAuthn's test vectors", () => {
+  it.effect("registers a passkey with packed attestation, skipping its statement, and signs in with it", () =>
+    Effect.gen(function* () {
+      const passkey = yield* verifyRegistration(subtle, packed.registration, {
+        ...vectorSite,
+        challenge: packed.registrationChallenge,
+        userHandle: "dXNlcg",
+      })
+      assert.strictEqual(passkey.id, packed.registration.id)
+      const signedIn = yield* verifyAuthentication(subtle, packed.authentication, passkey, {
+        ...vectorSite,
+        challenge: packed.authenticationChallenge,
+      })
+      assert.strictEqual(signedIn.signCount, 0)
+    }),
+  )
+
+  it.effect("reads a registration without attestation, and refuses it: the person wasn't verified", () =>
+    Effect.gen(function* () {
+      const challenge = fromHex("00c30fb78531c464d2b6771dab8d7b603c01162f2fa486bea70f283ae556e130")
+      assert.strictEqual(
+        yield* reasonOf(verifyRegistration(subtle, unverified, { ...vectorSite, challenge, userHandle: "dXNlcg" })),
+        "The person wasn't verified",
+      )
+    }),
+  )
+})
+
+describe("attestation objects", () => {
+  it.effect("reads the key from the attestation object, never from the fields a client sends beside it", () =>
+    Effect.gen(function* () {
+      const authenticator = yield* newAuthenticator
+      const other = yield* newAuthenticator
+      const registration = yield* authenticator.register(ceremony, account)
+      const otherRegistration = yield* other.register(ceremony, account)
+      const { response: otherFields } = yield* Schema.decodeUnknownEffect(
+        Schema.Struct({ response: Schema.Struct({ authenticatorData: Schema.String, publicKey: Schema.String }) }),
+      )(otherRegistration)
+      const kept = yield* verifyRegistration(subtle, registration, expected)
+      const passkey = yield* verifyRegistration(
+        subtle,
+        { ...registration, response: { ...registration.response, ...otherFields } },
+        expected,
+      )
+      assert.strictEqual(passkey.publicKey, kept.publicKey)
+      assert.notStrictEqual(passkey.publicKey, otherFields.publicKey)
+    }),
+  )
+
+  it.effect("refuses one that isn't fmt, attStmt and authData in CBOR as WebAuthn writes it", () =>
+    Effect.gen(function* () {
+      const authenticator = yield* newAuthenticator
+      const registration = yield* authenticator.register(ceremony, account)
+      const data = attestedDataOf(registration)
+      const fmt = [...key("fmt"), ...key("none")]
+      const authData = (length: number) => [...key("authData"), 0x59, length >> 8, length & 0xff, ...data]
+      const statement = (...value: ReadonlyArray<number>) => [...key("attStmt"), 0xa1, ...key("x"), ...value]
+      const object = (...entries: ReadonlyArray<number>) => ({
+        ...registration,
+        response: { ...registration.response, attestationObject: Base64Url.encode(Uint8Array.from(entries)) },
+      })
+      const refused = [
+        // A map of indefinite length, which authenticators never write.
+        object(0xbf, ...fmt, ...statement(0), ...authData(data.length), 0xff),
+        // A fourth entry; and `fmt` twice, without a statement.
+        object(0xa4, ...fmt, ...statement(0), ...authData(data.length), ...key("x"), 0),
+        object(0xa3, ...fmt, ...fmt, ...authData(data.length)),
+        // Data longer than the bytes left, and a byte after the map.
+        object(0xa3, ...fmt, ...statement(0), ...authData(data.length + 1)),
+        object(0xa3, ...fmt, ...statement(0), ...authData(data.length), 0),
+        // A format that isn't text.
+        object(0xa3, ...key("fmt"), 1, ...statement(0), ...authData(data.length)),
+        // A statement whose deepest item is 9 levels in, past the limit of 8; the object is level 0.
+        object(0xa3, ...fmt, ...statement(...new Uint8Array(7).fill(0x81), 0), ...authData(data.length)),
+        // An array that claims 2^64 - 1 items; and a reserved length (28), with the 16 bytes it would take.
+        object(0xa3, ...fmt, ...statement(0x9b, ...new Uint8Array(8).fill(0xff)), ...authData(data.length)),
+        object(0xa3, ...fmt, ...statement(0x1c, ...new Uint8Array(16).fill(0)), ...authData(data.length)),
+      ]
+      for (const answer of refused) {
+        assert.strictEqual(
+          yield* reasonOf(verifyRegistration(subtle, answer, expected)),
+          "The attestation object isn't CBOR of fmt, attStmt and authData, as WebAuthn writes it",
+        )
+      }
+      // In any order, with a statement whose deepest item is 8 levels in.
+      const reordered = object(0xa3, ...authData(data.length), ...statement(...new Uint8Array(6).fill(0x81), 0), ...fmt)
+      assert.strictEqual((yield* verifyRegistration(subtle, reordered, expected)).id, authenticator.id)
+      assert.strictEqual(
+        yield* reasonOf(
+          verifyRegistration(
+            subtle,
+            { ...registration, response: { ...registration.response, attestationObject: "o2Nm=" } },
+            expected,
+          ),
+        ),
+        "The attestation object isn't canonical base64url",
+      )
+    }),
+  )
+
+  it.effect("reads a statement of a million items in linear time, and a megabyte of nesting without overflow", () =>
+    Effect.gen(function* () {
+      const authenticator = yield* newAuthenticator
+      const registration = yield* authenticator.register(ceremony, account)
+      const data = attestedDataOf(registration)
+      const withStatement = (statement: Uint8Array) => {
+        const head = Uint8Array.of(
+          0xa3,
+          0x63,
+          ...ascii("fmt"),
+          0x64,
+          ...ascii("none"),
+          0x67,
+          ...ascii("attStmt"),
+          0xa1,
+          0x61,
+          0x78,
+        )
+        const tail = Uint8Array.of(0x68, ...ascii("authData"), 0x59, data.length >> 8, data.length & 0xff, ...data)
+        const all = new Uint8Array(head.length + statement.length + tail.length)
+        all.set(head)
+        all.set(statement, head.length)
+        all.set(tail, head.length + statement.length)
+        return { ...registration, response: { ...registration.response, attestationObject: Base64Url.encode(all) } }
+      }
+      const million = new Uint8Array(5 + 1_000_000)
+      million.set([0x9a, 0x00, 0x0f, 0x42, 0x40])
+      assert.strictEqual((yield* verifyRegistration(subtle, withStatement(million), expected)).id, authenticator.id)
+      assert.strictEqual(
+        yield* reasonOf(verifyRegistration(subtle, withStatement(new Uint8Array(1_000_000).fill(0x81)), expected)),
+        "The attestation object isn't CBOR of fmt, attStmt and authData, as WebAuthn writes it",
+      )
+    }),
   )
 })

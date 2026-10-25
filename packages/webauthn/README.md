@@ -16,12 +16,30 @@ from Effect's `Crypto` service, which the host provides: `BrowserCrypto.layer` f
 `@effect/platform-browser/BrowserCrypto` on Workers and in browsers, and Effect's platform package
 on Bun and Node.
 
+## What crosses the wire
+
+WebAuthn's own JSON, both ways, on every platform. The options are plain objects whose bytes are
+base64url text, as the W3C's `PublicKeyCredentialCreationOptionsJSON` and
+`PublicKeyCredentialRequestOptionsJSON` write them; send them as JSON. The answer a device gives is
+`RegistrationResponseJSON` or `AuthenticationResponseJSON`: post what the platform gives you, as it
+is, and where a platform has no such JSON, build it from the same fields.
+
+| Client | Options in | Answer out |
+|---|---|---|
+| Browser | `PublicKeyCredential.parseCreationOptionsFromJSON(options)`, or `parseRequestOptionsFromJSON` | `JSON.stringify(credential)`, which calls its `toJSON()` |
+| Android (Credential Manager) | `CreatePublicKeyCredentialRequest(json)`, or `GetPublicKeyCredentialOption(json)` | `registrationResponseJson`, or `authenticationResponseJson`, as it is |
+| iPhone, iPad, Mac (AuthenticationServices) | `rp.id` to the provider; `challenge`, `user.name` and `user.id`, base64url-decoded, to its request | Registration: `credentialID`, `rawClientDataJSON` and `rawAttestationObject`, base64url. Sign-in: also `rawAuthenticatorData`, `signature` and `userID` |
+
+Origins differ by client, and each one a site's passkeys run on goes into `origins`: a page's is its
+own, such as `https://notes.example`; an Apple app's is `https://` its associated domain; an Android
+app's is `android:apk-key-hash:` and the base64url SHA-256 of its signing certificate.
+
 ## Use it
 
 Registering, for an account that is signed in:
 
 ```ts
-import type { Passkey } from "@bagatka/webauthn"
+import type { Passkey, PublicKeyCredentialCreationOptionsJSON } from "@bagatka/webauthn"
 import { challengeOf, registrationOptions, verifyRegistration } from "@bagatka/webauthn"
 import { BrowserCrypto } from "@effect/platform-browser"
 import { Effect } from "effect"
@@ -34,7 +52,8 @@ declare const challenges: {
   readonly take: (challenge: string, bound: { readonly purpose: string; readonly account: string }) => Effect.Effect<string>
 }
 declare const passkeys: { readonly insert: (passkey: Passkey) => Effect.Effect<void> } // refuses an `id` already kept
-declare const send: (options: unknown) => Effect.Effect<unknown> // to the browser, and its `credential.toJSON()` back
+// The options to the device, as JSON, and its answer back, as the request's body arrived.
+declare const send: (options: PublicKeyCredentialCreationOptionsJSON) => Effect.Effect<unknown>
 
 const register = Effect.gen(function* () {
   const bound = { purpose: "registration", account: account.id }
@@ -65,6 +84,51 @@ const register = Effect.gen(function* () {
 // register: Effect<void, WebAuthnRejected>
 ```
 
+In the browser, the options go in and the answer comes out as JSON, with nothing to convert:
+
+```ts
+const response = await fetch("/passkeys/options", { method: "POST" })
+const options = PublicKeyCredential.parseCreationOptionsFromJSON(await response.json())
+const credential = await navigator.credentials.create({ publicKey: options })
+await fetch("/passkeys", { method: "POST", body: JSON.stringify(credential) })
+```
+
+On Apple's platforms, the same JSON is built from the registration's fields:
+
+```swift
+import AuthenticationServices
+
+/// What `verifyRegistration` reads, as a browser's `toJSON()` writes it.
+struct RegistrationResponseJSON: Encodable {
+  struct Response: Encodable {
+    let clientDataJSON: String
+    let attestationObject: String
+  }
+  let id: String
+  let type = "public-key"
+  let response: Response
+}
+
+struct NoAttestationObject: Error {}
+
+func json(of registration: ASAuthorizationPlatformPublicKeyCredentialRegistration) throws -> Data {
+  guard let attestationObject = registration.rawAttestationObject else { throw NoAttestationObject() }
+  let answer = RegistrationResponseJSON(
+    id: base64URL(registration.credentialID),
+    response: .init(
+      clientDataJSON: base64URL(registration.rawClientDataJSON),
+      attestationObject: base64URL(attestationObject)
+    )
+  )
+  return try JSONEncoder().encode(answer)
+}
+
+/// Base64url without padding, as WebAuthn's JSON writes bytes.
+func base64URL(_ data: Data) -> String {
+  data.base64EncodedString().replacing("+", with: "-").replacing("/", with: "_").replacing("=", with: "")
+}
+```
+
 Signing in is the same with `authenticationOptions` and `verifyAuthentication`: find the passkey by
 the answer's `id` alone, and the account is the passkey's. It checks that the answer names that
 account, verifies the signature with the kept public key, and returns the counter to keep.
@@ -72,13 +136,16 @@ account, verifies the signature with the kept public key, and returns the counte
 Every refusal is `WebAuthnRejected`, whose `reason` (and `message`) is for logs: tell the person only
 to try again. Untrusted input is refused, never a defect: `verifyRegistration` and
 `verifyAuthentication` take the request's JSON as it arrived (`unknown`) and decode it themselves.
+Each of the five functions is a span of its own name, such as `verifyRegistration`, in whatever
+tracer the host installs.
 
 ## Contract
 
 `src/index.ts`. Callers make options for the two ceremonies, registration and authentication, and
 check each answer against the challenge they kept, the origins the site runs on, the site, and, for
-a sign-in, the passkey they kept. `softwareAuthenticator` makes and signs passkeys as a device does,
-for tests of the sites that check them.
+a sign-in, the passkey they kept. The four Schemas, named as the W3C names them, describe what
+crosses the wire, for an API that serves and takes it. `softwareAuthenticator` makes and signs
+passkeys as a device does, with every field a browser sends, for tests of the sites that check them.
 
 ## Does not own
 
@@ -110,14 +177,25 @@ What only the caller can do, which the checks rely on:
   authentication (section 7.2) are checked step by step: the client data's type, challenge, origin,
   `crossOrigin` and `topOrigin`; the site's hash; the person present and verified; the backup flags;
   the credential's ID; the key; the signature over the authenticator data and the client data's
-  hash; the counter. Skipped on purpose: attestation (steps 20–24), extensions (none are asked for),
-  and keeping backup eligibility (the flags are only checked to agree).
+  hash; the counter. Skipped on purpose: the attestation statement (steps 20–24), extensions (none
+  are asked for), and keeping backup eligibility (the flags are only checked to agree).
+- **A registration is read from its attestation object,** as WebAuthn's steps read it, and as
+  every platform sends it: browsers, Android and Apple's platforms all give the attestation object,
+  while only browsers give the `authenticatorData` and `publicKey` beside it, which are ignored. Its
+  CBOR is read here, bounded: definite lengths only, at most 8 levels, every length within the
+  bytes, each of `fmt`, `attStmt` and `authData` once and nothing else, in time linear in its size.
+  The statement is skipped, whatever its format.
 - **The key comes from the authenticator data:** a COSE ES256 key on P-256, in CTAP2's canonical
-  form, turned into SPKI here. A `publicKey` the client sends beside it is ignored, so the key kept
-  is the one the authenticator data names, and apps that send only `authenticatorData` work as
-  browsers do. Without attestation, nothing proves a device wrote that data: any client can write
-  it around a key of its own, as `softwareAuthenticator` does. What a passkey proves is that whoever
-  registered it holds its key, and that their authenticator saw them present and verified.
+  form, turned into SPKI here. Without attestation, nothing proves a device wrote that data: any
+  client can write it around a key of its own, as `softwareAuthenticator` does. What a passkey
+  proves is that whoever registered it holds its key, and that their authenticator saw them present
+  and verified.
+- **The W3C's names, and the DOM's types.** The four Schemas are named and shaped as WebAuthn's JSON
+  is, so options go to `parseCreationOptionsFromJSON` and answers come from `toJSON()` without a
+  conversion or a cast: `bun run check` proves that the options fit the DOM's types and that the
+  DOM's answers fit these. The tests check WebAuthn Level 3's own test vectors (section 16): a
+  passkey with packed attestation registers and signs in, and one whose person wasn't verified is
+  refused.
 - **The account is checked on every sign-in.** The user handle isn't signed, so an answer could name
   any account; it must name the passkey's (step 6), and must name one, as discoverable passkeys do.
 - **ES256 only, discoverable, verified, no attestation.** Every passkey manager makes ES256 keys;
@@ -131,7 +209,8 @@ What only the caller can do, which the checks rely on:
   challenge once is what keeps an answer from being replayed.
 - **Bounded parsing.** Credential IDs are 16 to 1023 bytes, inside the data; a registration's data
   ends with the key unless it says extensions follow; a sign-in's is 37 bytes unless it says so.
-  Nothing an answer holds is read beyond its length, and nothing throws.
+  Nothing an answer holds is read beyond its length, nothing throws, and a test feeds a statement of
+  a million items and a megabyte of nesting.
 - **Reasons never echo what an answer chose,** except an origin, quoted, in printable ASCII, and cut
   at 80 characters, so a log line can't be forged or flooded.
 - **Several origins.** A site served on more than one origin, such as `https://example.com` and

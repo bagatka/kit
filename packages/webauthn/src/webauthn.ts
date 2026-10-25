@@ -1,6 +1,7 @@
 import { Crypto, Effect, Result, Schema } from "effect"
 import { Base64Url } from "effect/encoding"
 
+import { authenticatorDataOf } from "./attestation-object.ts"
 import { publicKeyOf } from "./cose-key.ts"
 import { rawSignatureOf } from "./der-signature.ts"
 
@@ -39,46 +40,58 @@ export interface RegistrationInput {
   readonly excludeIds: ReadonlyArray<string>
 }
 
-const PasskeyCredential = Schema.Struct({ type: Schema.String, id: Schema.String }).annotate({
-  identifier: "PasskeyCredential",
-})
+const PublicKeyCredentialDescriptorJSON = Schema.Struct({
+  type: Schema.Literal("public-key"),
+  id: Schema.String,
+}).annotate({ identifier: "PublicKeyCredentialDescriptorJSON" })
 
 /**
- * Options for `navigator.credentials.create()`, as `PublicKeyCredential.parseCreationOptionsFromJSON`
- * reads them, and as an app passes them to the platform's passkey request.
+ * The options a passkey is made with: a plain object whose binary fields are base64url text, as
+ * WebAuthn's JSON writes them. Send it as JSON (`JSON.stringify`, or an `HttpApi` endpoint that
+ * returns this Schema); it isn't JSON text itself. A browser passes it to
+ * `PublicKeyCredential.parseCreationOptionsFromJSON()` and then `navigator.credentials.create()`;
+ * an app, to the platform's passkey request. Its type fits the DOM's
+ * `PublicKeyCredentialCreationOptionsJSON`.
  */
-export const RegistrationOptions = Schema.Struct({
-  rp: Schema.Struct({ id: Schema.String, name: Schema.String }).annotate({ identifier: "PasskeySite" }),
+export const PublicKeyCredentialCreationOptionsJSON = Schema.Struct({
+  rp: Schema.Struct({ id: Schema.String, name: Schema.String }).annotate({ identifier: "PublicKeyCredentialRpEntity" }),
   user: Schema.Struct({ id: Schema.String, name: Schema.String, displayName: Schema.String }).annotate({
-    identifier: "PasskeyUser",
+    identifier: "PublicKeyCredentialUserEntityJSON",
   }),
   challenge: Schema.String,
-  pubKeyCredParams: Schema.Array(
-    Schema.Struct({ type: Schema.String, alg: Schema.Int }).annotate({ identifier: "PasskeyAlgorithm" }),
+  pubKeyCredParams: Schema.mutable(
+    Schema.Array(
+      Schema.Struct({ type: Schema.Literal("public-key"), alg: Schema.Int }).annotate({
+        identifier: "PublicKeyCredentialParameters",
+      }),
+    ),
   ),
   timeout: Schema.Int,
-  excludeCredentials: Schema.Array(PasskeyCredential),
+  excludeCredentials: Schema.mutable(Schema.Array(PublicKeyCredentialDescriptorJSON)),
   authenticatorSelection: Schema.Struct({
-    residentKey: Schema.String,
-    requireResidentKey: Schema.Boolean,
-    userVerification: Schema.String,
-  }).annotate({ identifier: "PasskeySelection" }),
-  attestation: Schema.String,
-}).annotate({ identifier: "PasskeyRegistrationOptions" })
-export type RegistrationOptions = typeof RegistrationOptions.Type
+    residentKey: Schema.Literal("required"),
+    requireResidentKey: Schema.Literal(true),
+    userVerification: Schema.Literal("required"),
+  }).annotate({ identifier: "AuthenticatorSelectionCriteria" }),
+  attestation: Schema.Literal("none"),
+}).annotate({ identifier: "PublicKeyCredentialCreationOptionsJSON" })
+export type PublicKeyCredentialCreationOptionsJSON = typeof PublicKeyCredentialCreationOptionsJSON.Type
 
 /**
- * Options for `navigator.credentials.get()`, as `PublicKeyCredential.parseRequestOptionsFromJSON`
- * reads them, and as an app passes them to the platform's passkey request.
+ * The options a sign-in is made with: a plain object whose binary fields are base64url text, sent
+ * as JSON as the creation options are. A browser passes it to
+ * `PublicKeyCredential.parseRequestOptionsFromJSON()` and then `navigator.credentials.get()`; an
+ * app, to the platform's passkey request. Its type fits the DOM's
+ * `PublicKeyCredentialRequestOptionsJSON`.
  */
-export const AuthenticationOptions = Schema.Struct({
+export const PublicKeyCredentialRequestOptionsJSON = Schema.Struct({
   challenge: Schema.String,
   rpId: Schema.String,
   timeout: Schema.Int,
-  userVerification: Schema.String,
-  allowCredentials: Schema.Array(PasskeyCredential),
-}).annotate({ identifier: "PasskeyAuthenticationOptions" })
-export type AuthenticationOptions = typeof AuthenticationOptions.Type
+  userVerification: Schema.Literal("required"),
+  allowCredentials: Schema.mutable(Schema.Array(PublicKeyCredentialDescriptorJSON)),
+}).annotate({ identifier: "PublicKeyCredentialRequestOptionsJSON" })
+export type PublicKeyCredentialRequestOptionsJSON = typeof PublicKeyCredentialRequestOptionsJSON.Type
 
 /**
  * The options that make a passkey: discoverable, verified by the person (Face ID, Touch ID, a PIN),
@@ -92,7 +105,7 @@ export const registrationOptions = Effect.fn("registrationOptions")(function* (i
     return yield* Effect.die("registrationOptions takes a user.id of 1 to 64 random bytes in canonical base64url")
   }
   const challenge = yield* newChallenge
-  const options: RegistrationOptions = {
+  const options: PublicKeyCredentialCreationOptionsJSON = {
     rp: { id: input.rp.id, name: input.rp.name },
     user: { id: input.user.id, name: input.user.name, displayName: input.user.displayName },
     challenge,
@@ -117,7 +130,7 @@ export const authenticationOptions = Effect.fn("authenticationOptions")(function
   readonly rpId: string
 }) {
   const challenge = yield* newChallenge
-  const options: AuthenticationOptions = {
+  const options: PublicKeyCredentialRequestOptionsJSON = {
     challenge,
     rpId: input.rpId,
     timeout: ceremonyMs,
@@ -128,22 +141,30 @@ export const authenticationOptions = Effect.fn("authenticationOptions")(function
 })
 
 /**
- * What `navigator.credentials.create()` returned, as its `toJSON()` gives it, or an app sends it:
- * the fields this package reads. Others, such as `publicKey`, are ignored: the key is read from the
- * authenticator data, which the device made.
+
+/**
+ * What a device answers a registration with: a plain object whose binary fields are base64url
+ * text, as `credential.toJSON()` gives it in a browser, and as an app builds it. Post it as JSON,
+ * as it is. The fields named here are the ones `verifyRegistration` reads; others a browser sends,
+ * such as `rawId`, `authenticatorData` and `publicKey`, are ignored: the key and the data are read
+ * from the attestation object, which the device made. The DOM's `RegistrationResponseJSON` fits it.
  */
-export const RegistrationResponse = Schema.Struct({
+export const RegistrationResponseJSON = Schema.Struct({
   id: Schema.String,
   type: Schema.String,
   response: Schema.Struct({
     clientDataJSON: Schema.String,
-    authenticatorData: Schema.String,
-  }).annotate({ identifier: "PasskeyAttestation" }),
-}).annotate({ identifier: "PasskeyRegistration" })
-export type RegistrationResponse = typeof RegistrationResponse.Type
+    attestationObject: Schema.String,
+  }).annotate({ identifier: "AuthenticatorAttestationResponseJSON" }),
+}).annotate({ identifier: "RegistrationResponseJSON" })
+export type RegistrationResponseJSON = typeof RegistrationResponseJSON.Type
 
-/** What `navigator.credentials.get()` returned, as its `toJSON()` gives it, or an app sends it. */
-export const AuthenticationResponse = Schema.Struct({
+/**
+ * What a device answers a sign-in with: a plain object whose binary fields are base64url text, as
+ * `credential.toJSON()` gives it in a browser, and as an app builds it. Post it as JSON, as it is.
+ * The DOM's `AuthenticationResponseJSON` fits it.
+ */
+export const AuthenticationResponseJSON = Schema.Struct({
   id: Schema.String,
   type: Schema.String,
   response: Schema.Struct({
@@ -152,9 +173,9 @@ export const AuthenticationResponse = Schema.Struct({
     signature: Schema.String,
     /** The account's user handle, which a discoverable passkey returns; required to sign in. */
     userHandle: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  }).annotate({ identifier: "PasskeyAssertion" }),
-}).annotate({ identifier: "PasskeyAuthentication" })
-export type AuthenticationResponse = typeof AuthenticationResponse.Type
+  }).annotate({ identifier: "AuthenticatorAssertionResponseJSON" }),
+}).annotate({ identifier: "AuthenticationResponseJSON" })
+export type AuthenticationResponseJSON = typeof AuthenticationResponseJSON.Type
 
 /** What a ceremony must match: the challenge kept for it, where it ran, and the site. */
 export interface Expected {
@@ -213,17 +234,18 @@ export const challengeOf = Effect.fn("challengeOf")(function* (answer: unknown) 
 
 /**
  * Checks a new passkey: its client data is a creation for `expected`'s challenge on one of its
- * origins; its authenticator data is for `expected`'s site, with the person present and verified,
- * and holds a credential whose ID is the answer's and whose key is ES256 on P-256. The passkey to
- * keep, for `expected.userHandle`'s account, with its counter. Attestation isn't checked: any
- * authenticator may register. An answer that isn't WebAuthn's JSON is refused, not a defect.
+ * origins; the authenticator data in its attestation object is for `expected`'s site, with the
+ * person present and verified, and holds a credential whose ID is the answer's and whose key is
+ * ES256 on P-256. The passkey to keep, for `expected.userHandle`'s account, with its counter. The
+ * attestation statement isn't checked: any authenticator may register. An answer that isn't
+ * WebAuthn's JSON is refused, not a defect.
  */
 export const verifyRegistration = Effect.fn("verifyRegistration")(function* (
   crypto: WebAuthnCrypto,
   answer: unknown,
   expected: RegistrationExpected,
 ) {
-  const registration = yield* Schema.decodeUnknownEffect(RegistrationResponse)(answer).pipe(
+  const registration = yield* Schema.decodeUnknownEffect(RegistrationResponseJSON)(answer).pipe(
     Effect.mapError(() => new WebAuthnRejected({ reason: "The answer isn't a WebAuthn registration's JSON" })),
   )
   if (registration.type !== "public-key") {
@@ -235,7 +257,12 @@ export const verifyRegistration = Effect.fn("verifyRegistration")(function* (
     })
   }
   yield* checkClientData(registration.response.clientDataJSON, "webauthn.create", expected)
-  const data = yield* bytesOf(registration.response.authenticatorData, "authenticator data")
+  const data = authenticatorDataOf(yield* bytesOf(registration.response.attestationObject, "attestation object"))
+  if (data === undefined) {
+    return yield* new WebAuthnRejected({
+      reason: "The attestation object isn't CBOR of fmt, attStmt and authData, as WebAuthn writes it",
+    })
+  }
   const authenticator = yield* checkAuthenticatorData(crypto, data, expected.rpId)
   if ((authenticator.flags & attestedData) === 0 || data.length < 55) {
     return yield* new WebAuthnRejected({ reason: "The authenticator data has no credential" })
@@ -282,7 +309,7 @@ export const verifyAuthentication = Effect.fn("verifyAuthentication")(function* 
   passkey: Passkey,
   expected: Expected,
 ) {
-  const authentication = yield* Schema.decodeUnknownEffect(AuthenticationResponse)(answer).pipe(
+  const authentication = yield* Schema.decodeUnknownEffect(AuthenticationResponseJSON)(answer).pipe(
     Effect.mapError(() => new WebAuthnRejected({ reason: "The answer isn't a WebAuthn authentication's JSON" })),
   )
   if (authentication.type !== "public-key") {

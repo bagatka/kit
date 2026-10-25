@@ -4,13 +4,13 @@
  * and passkeys.
  */
 export {
-  AuthenticationOptions,
   authenticationOptions,
-  AuthenticationResponse,
+  AuthenticationResponseJSON,
   challengeOf,
-  RegistrationOptions,
+  PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
   registrationOptions,
-  RegistrationResponse,
+  RegistrationResponseJSON,
   verifyAuthentication,
   verifyRegistration,
   WebAuthnRejected,

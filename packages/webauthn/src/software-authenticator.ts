@@ -1,8 +1,8 @@
 import { Effect, Schema } from "effect"
 import { Base64Url } from "effect/encoding"
 
-import { coseKeyOf } from "./cose-key.ts"
-import type { AuthenticationResponse, RegistrationResponse, WebAuthnCrypto } from "./webauthn.ts"
+import { coseKeyOf, publicKeyOf } from "./cose-key.ts"
+import type { AuthenticationResponseJSON, RegistrationResponseJSON, WebAuthnCrypto } from "./webauthn.ts"
 
 /**
  * The part of the Web Crypto API a software authenticator makes and signs passkeys with: `crypto`
@@ -37,22 +37,25 @@ export interface SoftwareAuthenticator {
   readonly id: string
   /**
    * Makes the passkey for `ceremony`, for the account whose user handle is `account.userHandle`, as
-   * `navigator.credentials.create()` returns it: synced, as a phone's or a password manager's is.
-   * `verified: false` leaves the person unverified, for tests of refusals.
+   * a browser's `credential.toJSON()` gives it: synced, as a phone's or a password manager's is,
+   * with an attestation object of format `none`, and every other field a browser sends, such as
+   * `rawId`, `authenticatorData` and `publicKey`, though its type names only those
+   * `verifyRegistration` reads. `verified: false` leaves the person unverified, for tests of
+   * refusals.
    */
   readonly register: (
     ceremony: Ceremony,
     account: { readonly userHandle: string; readonly verified?: boolean },
-  ) => Effect.Effect<RegistrationResponse>
+  ) => Effect.Effect<RegistrationResponseJSON>
   /**
-   * Signs in for `ceremony`, as `navigator.credentials.get()` returns it, naming the account it was
-   * registered for. `signCount` sets the counter, which synced passkeys keep at 0; `type` sets the
-   * client data's type, for tests of refusals.
+   * Signs in for `ceremony`, as a browser's `credential.toJSON()` gives it, naming the account it
+   * was registered for. `signCount` sets the counter, which synced passkeys keep at 0; `type` sets
+   * the client data's type, for tests of refusals.
    */
   readonly authenticate: (
     ceremony: Ceremony,
     options?: { readonly signCount?: number; readonly type?: string },
-  ) => Effect.Effect<AuthenticationResponse>
+  ) => Effect.Effect<AuthenticationResponseJSON>
 }
 
 // The authenticator data's flags: the person present (0x01) and verified (0x04), the passkey
@@ -90,6 +93,30 @@ const clientData = (type: string, ceremony: Ceremony) =>
     crossOrigin: false,
   }).pipe(Effect.orDie, Effect.map(text))
 
+// A CBOR byte string's head (RFC 8949, section 3) for `length` bytes, up to 65,535.
+const byteStringHead = (length: number) => {
+  if (length < 24) {
+    return Uint8Array.of(0x40 | length)
+  }
+  return length < 256 ? Uint8Array.of(0x58, length) : Uint8Array.of(0x59, length >> 8, length & 0xff)
+}
+
+// The attestation object a device writes without attestation (WebAuthn, section 8.7): format
+// `none`, an empty statement, and the authenticator data, in CTAP2's canonical order.
+const noneAttestationOf = (authenticatorData: Uint8Array) =>
+  concat(
+    Uint8Array.of(0xa3, 0x63),
+    text("fmt"),
+    Uint8Array.of(0x64),
+    text("none"),
+    Uint8Array.of(0x67),
+    text("attStmt"),
+    Uint8Array.of(0xa0, 0x68),
+    text("authData"),
+    byteStringHead(authenticatorData.length),
+    authenticatorData,
+  )
+
 // An ECDSA signature as Web Crypto makes it, r and s, as authenticators send it: DER.
 const derOf = (raw: Uint8Array) => {
   const integer = (value: Uint8Array) => {
@@ -124,6 +151,10 @@ export const softwareAuthenticator = Effect.fn("softwareAuthenticator")(function
     return yield* Effect.die("Web Crypto exported no uncompressed P-256 point")
   }
   const coseKey = coseKeyOf(new Uint8Array(exported))
+  const spki = publicKeyOf(coseKey)?.spki
+  if (spki === undefined) {
+    return yield* Effect.die("A COSE key written here couldn't be read back")
+  }
   const credentialId = crypto.getRandomValues(new Uint8Array(16))
   const id = Base64Url.encode(credentialId)
   // The account it was registered for; none until it is.
@@ -143,12 +174,20 @@ export const softwareAuthenticator = Effect.fn("softwareAuthenticator")(function
         credentialId,
         coseKey,
       )
-      const response: RegistrationResponse = {
+      // What a browser's toJSON() gives, every field, as sites receive it.
+      const response = {
         id,
+        rawId: id,
         type: "public-key",
+        authenticatorAttachment: "platform",
+        clientExtensionResults: {},
         response: {
           clientDataJSON: Base64Url.encode(yield* clientData("webauthn.create", ceremony)),
+          attestationObject: Base64Url.encode(noneAttestationOf(authenticatorData)),
           authenticatorData: Base64Url.encode(authenticatorData),
+          publicKey: Base64Url.encode(spki),
+          publicKeyAlgorithm: -7,
+          transports: ["hybrid", "internal"],
         },
       }
       return response
@@ -166,9 +205,12 @@ export const softwareAuthenticator = Effect.fn("softwareAuthenticator")(function
       const raw = new Uint8Array(
         yield* Effect.promise(() => crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, signed)),
       )
-      const response: AuthenticationResponse = {
+      const response = {
         id,
+        rawId: id,
         type: "public-key",
+        authenticatorAttachment: "platform",
+        clientExtensionResults: {},
         response: {
           clientDataJSON: Base64Url.encode(data),
           authenticatorData: Base64Url.encode(authenticatorData),

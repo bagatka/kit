@@ -314,9 +314,11 @@ const checkInstalled = Effect.fn("checkInstalled")(function* (
   const all = `export const packages = [${names.map((_, index) => `package${index}`).join(", ")}]`
   yield* fs.writeFileString(path.join(probes, "packages.ts"), `${declarations}\n${all}\n`).pipe(Effect.orDie)
   const used = platformTypes.filter((type) => names.includes(type.packageName))
-  yield* fs.writeFileString(path.join(probes, "platform.ts"), platformProgram(used, false)).pipe(Effect.orDie)
-  const workersOnly = platformProgram(used, true)
+  yield* fs.writeFileString(path.join(probes, "platform.ts"), platformProgram(used, "globals")).pipe(Effect.orDie)
+  const workersOnly = platformProgram(used, "workersBindings")
   yield* fs.writeFileString(path.join(probes, "platform-workers.ts"), workersOnly).pipe(Effect.orDie)
+  const domOnly = platformProgram(used, "domTypes")
+  yield* fs.writeFileString(path.join(probes, "platform-dom.ts"), domOnly).pipe(Effect.orDie)
 
   const compilerOptions = {
     module: "nodenext",
@@ -329,7 +331,7 @@ const checkInstalled = Effect.fn("checkInstalled")(function* (
   // program gets from the DOM's library or from its platform's types.
   const browser = yield* jsonText({
     compilerOptions: { ...compilerOptions, lib: ["esnext", "dom", "dom.iterable"], types: [] },
-    files: ["packages.ts", "platform.ts"],
+    files: ["packages.ts", "platform.ts", "platform-dom.ts"],
   })
   yield* fs.writeFileString(path.join(probes, "tsconfig.browser.json"), browser).pipe(Effect.orDie)
   // Effect's own declarations also name the DOM's `Storage`, which Workers don't have, so with

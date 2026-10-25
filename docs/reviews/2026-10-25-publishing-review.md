@@ -108,7 +108,32 @@ and how spans were named. PATTERNS.md, "Calling a service, and what it shows", i
 - **The README's example compiles,** with the stores it uses declared, the `Crypto` layer provided,
   and the refusal handled; checked against the installed tarball, and a whole ceremony run from it
   on Node 26: registered, signed in, and a sign-in from another origin refused, with its reason.
-- **Open, for the founder:** registrations are read from `response.authenticatorData`, which
-  `toJSON()` gives in Chrome 129, Firefox 119 and Safari 18.4 and later, but an iPhone app's
-  registration doesn't: `ASAuthorizationPlatformPublicKeyCredentialRegistration` has only
-  `rawAttestationObject`, the CBOR that holds it.
+- **Registrations are read from the attestation object, decided with the founder.** They were read
+  from `response.authenticatorData`, which `toJSON()` gives in Chrome 129, Firefox 119 and Safari
+  18.4 and later, but no other client: Android's `registrationResponseJson` and an Apple app's
+  `ASAuthorizationPlatformPublicKeyCredentialRegistration` give only the attestation object, the
+  CBOR that holds it. Every client gives that, and WebAuthn's steps read it, so one JSON works
+  everywhere and no platform needs a special case. Its CBOR is read by a small bounded reader of
+  this package's own (definite lengths, 8 levels, lengths within the bytes, each key once, linear
+  time); the statement is skipped, as before. The `authenticatorData` and `publicKey` a browser
+  sends beside it are ignored, and a test proves that.
+- **The W3C's names.** `RegistrationOptions`, `AuthenticationOptions`, `RegistrationResponse` and
+  `AuthenticationResponse` are now `PublicKeyCredentialCreationOptionsJSON`,
+  `PublicKeyCredentialRequestOptionsJSON`, `RegistrationResponseJSON` and
+  `AuthenticationResponseJSON`, as WebAuthn Level 3, the DOM's types, and SimpleWebAuthn name them,
+  so a person or an agent who knows WebAuthn knows them. "JSON" names the shape, plain objects with
+  bytes as base64url text, not JSON text: each type's doc comment says so. The functions keep their
+  names.
+- **The options fit the DOM's types.** Their arrays were `readonly` and their values `string`, so a
+  typed browser client couldn't pass them to `parseCreationOptionsFromJSON` without a cast. They
+  are mutable arrays and literals now (`"public-key"`, `"required"`, `"none"`), and `bun run check`
+  type-checks both directions against the DOM's library: the options into its types, its
+  `toJSON()` answers into these (`tools/src/platform-types.ts`, `toDom` and `fromDom`).
+- **Checked against the specification's own vectors.** WebAuthn Level 3, section 16.7 (ES256 with
+  packed attestation) registers and signs in; 16.2's registration is refused, since its person
+  wasn't verified. `softwareAuthenticator` now writes an attestation object of format `none`, with
+  every field a browser sends.
+- **The README** leads with what crosses the wire, a table of what each client (browser, Android,
+  Apple's platforms) passes in and posts back, each client's origin, a browser snippet, and a Swift
+  one; the TypeScript type-checks against the installed tarball, and the Swift compiles for iOS
+  and macOS in Swift 6 with warnings as errors.
