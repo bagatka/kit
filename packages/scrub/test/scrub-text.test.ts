@@ -54,8 +54,13 @@ const recognized: ReadonlyArray<readonly [string, string]> = [
   [String.raw`{"api_key": "ab\"c", "clientSecret":'x'}`, `{"api_key": "[secret]", "clientSecret":'[secret]'}`],
   [`api_keys=k1,k2 private_keys: "abc"`, `api_keys=[secret],k2 private_keys: "[secret]"`],
   [String.raw`{\"password\":\"hunter2\"}`, String.raw`{\"password\":\"[secret]\"}`],
-  // To the closing quote, past any number of escapes.
+  // To the closing quote, past any number of escapes, in either quotes and inside a JSON string.
   [`{"password":"${String.raw`\t`.repeat(300)}end"}`, '{"password":"[secret]"}'],
+  [String.raw`password='ab\'cd' next`, "password='[secret]' next"],
+  [
+    String.raw`{\"password\":\"ab\\ncd\\\"ef\",\"user\":\"bob\"}`,
+    String.raw`{\"password\":\"[secret]\",\"user\":\"bob\"}`,
+  ],
   ["token: abc123def456", "token: [secret]"],
   // Cookie headers, to the end of the line.
   ['Cookie: theme="dark"; session=abc\nnext', "Cookie: [secret]\nnext"],
@@ -104,6 +109,16 @@ const kept = [
 // A megabyte of `unit` repeated.
 const fill = (unit: string) => unit.repeat(Math.ceil(1_000_000 / unit.length)).slice(0, 1_000_000)
 
+// The time to scrub `text`, the fastest of five runs, so a pause of the machine's doesn't count.
+const fastest = (text: string) =>
+  Math.min(
+    ...Array.from({ length: 5 }, () => {
+      const start = performance.now()
+      scrubText(text)
+      return performance.now() - start
+    }),
+  )
+
 describe("scrubText", () => {
   it("removes each form on the list", () => {
     for (const [text, scrubbed] of recognized) {
@@ -127,6 +142,24 @@ describe("scrubText", () => {
     }
     for (const text of ["notesXios.app.abcdefghijklmnopqrstuvwxyz", "acme_live_short", "x".repeat(130)]) {
       assert.strictEqual(scrubText(text, prefixes), text)
+    }
+    // Never right after a marker, where the first scrub read what the marker replaced: here, a
+    // letter, after which a key doesn't start.
+    const glued = "a@example.com_acme_live_abcdefghijklmnop"
+    assert.strictEqual(scrubText(glued, ["_acme_live_"]), "[email]_acme_live_abcdefghijklmnop")
+    assert.strictEqual(
+      scrubText(scrubText(glued, ["_acme_live_"]), ["_acme_live_"]),
+      "[email]_acme_live_abcdefghijklmnop",
+    )
+    // A prefix with a `[` or `]` isn't taken, since it could start or end inside a marker.
+    for (const [text, prefix] of [
+      ["4242424242424242[abcdefghijklmnopqrstu", "["],
+      ["Bearer abcd1234_xabcdefghijklmnopqrstu", "[token]_x"],
+      ["k acme]Zk3Pq9TzX2mV8wYb4LdR", "acme]"],
+    ] as const) {
+      const once = scrubText(text, [prefix])
+      assert.strictEqual(once, scrubText(text), prefix)
+      assert.strictEqual(scrubText(once, [prefix]), once, prefix)
     }
     // Another set compiles its own pattern; a prefix of 100 characters is taken, a 101st prefix
     // isn't.
@@ -223,6 +256,24 @@ describe("scrubText", () => {
       const start = performance.now()
       scrubText(text, prefixes)
       assert.isBelow(performance.now() - start, 1_000, text.slice(0, 40))
+    }
+  })
+
+  // A run a pattern declines, read again from each start inside it, takes time quadratic in its
+  // length, and a megabyte of it longer than any test can wait. Eight times the text takes about
+  // eight times as long, three doublings; quadratic, it takes 64 times as long, and the bound of 24
+  // lies far from both.
+  it("takes about twice as long for twice the text", () => {
+    // Credentials after a scheme, each with a scheme inside it, declined at the marker that ends them.
+    for (const [unit, marker] of [
+      ["Bearer+A1+", "[secret]"],
+      ["Bearer%20A1%20", "[email]"],
+      ["Token+abcd1+", "[card]"],
+    ] as const) {
+      const text = (length: number) => unit.repeat(Math.ceil(length / unit.length)) + marker
+      const [short, long] = [text(10_000), text(80_000)]
+      assert.strictEqual(scrubText(long), long)
+      assert.isBelow(fastest(long) / fastest(short), 24, unit)
     }
   })
 

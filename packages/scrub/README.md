@@ -66,9 +66,9 @@ written another way passes through.
   `password`, `passwd`, `pwd`, `passphrase`, `secret`, `credentials`, `jwt`, `signature`,
   `session_id`, `connection_string`, `cookie`, an API, access, secret, private, signing, encryption
   or master key, one or several (`api_keys`), and `token` (whose value must be 8 characters or more
-  and not a word). A quoted
-  value goes to its closing quote, past any number of escapes. The name and quotes stay; `null`,
-  `true`, `false` and structures (`{`, `[`) stay.
+  and not a word). A quoted value, in double or single quotes or inside a JSON string, goes to its
+  closing quote, past any number of escapes. The name and quotes stay; `null`, `true`, `false` and
+  structures (`{`, `[`) stay.
 - **`Cookie:` and `Set-Cookie:` header values,** to the end of the line.
 - **PEM private keys,** through their END line, or to the end of their base64 when cut short.
 - **Emails** with an ASCII local part and domain, also with `%40` for the `@`, and glued to another; a
@@ -110,10 +110,11 @@ Nothing.
   isn't a string is returned as `""`, without calling into it.
 - **Your own keys by prefix.** A prefix such as `acme_live_` followed by 16 or more key characters
   (letters, digits, `.`, `_`, `~`, `+`, `=`, `-`) is a token, where a key may start (not right after a
-  letter, digit, `_` or `-`). Prefixes are matched as written, never as patterns. Make them
-  distinctive (`acme_live_`, not `notes.`): `.` and `=` are key characters. At most 100 prefixes of
-  1 to 100 characters are taken; other values are ignored. The last set's pattern is kept,
-  so passing the same set each time compiles it once.
+  letter, digit, `_`, `-` or a marker such as `[email]`). Prefixes are matched as written, never as
+  patterns. Make them distinctive (`acme_live_`, not `notes.`): `.` and `=` are key characters. At
+  most 100 prefixes of 1 to 100 characters, without `[` or `]` (which would read a marker as a key's
+  start), are taken; other values are ignored. The last set's pattern is kept, so passing the same
+  set each time compiles it once.
 - **IP addresses stay,** since they are evidence when investigating abuse.
 - **Cost:** about 4 ms a megabyte of logs on Bun and on Node (8 to 17 when they hold an `@`, the
   only text searched for emails), under 1.5 µs a 200-character line; the worst text found takes

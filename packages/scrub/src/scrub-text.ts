@@ -10,7 +10,9 @@
 // past a few million characters, V8 throws and JavaScriptCore stops matching; and scrubbing twice
 // changes nothing, since no pattern starts right after, or ends right before, a marker (`[token]`)
 // that it or a later pattern writes, where the first scrub read the text the marker replaced; and
-// none consumes text it declines, which would hide a match starting inside it.
+// none consumes text it declines where a match of its own could start, which would hide it. A
+// credential after a scheme is read past whole when declined, since every match starting inside it
+// would end where it does, and be declined too (`schemeCredential`).
 
 // Right after an escape, where text starts again: `\n`, `\r` or `\t` in JSON, `%3D` in a URL.
 const afterEscape = String.raw`(?<=\\[nrt]|%[0-9A-Fa-f]{2})`
@@ -45,7 +47,8 @@ const keys = new RegExp(`${keyStart}(?:${keyShapes.join("|")})`, "g")
 // the prefix also names stays.
 const keyBody = "[A-Za-z0-9._~+=-]{16}[A-Za-z0-9._~+=-]*"
 
-// At most 100 prefixes of 1 to 100 characters are taken, so their pattern always compiles.
+// At most 100 prefixes of 1 to 100 characters are taken, so their pattern always compiles, and none
+// with a `[` or `]`, so none starts or ends inside a marker (`[token]`).
 const prefixLimit = 100
 
 // The pattern of the last set of prefixes, by its text, so a caller that passes the same set each
@@ -55,16 +58,26 @@ const lastPrefixPattern = new Map<string, RegExp>()
 const ownKeys = (prefixes: ReadonlyArray<string> | undefined): ReadonlyArray<RegExp> => {
   const given: ReadonlyArray<unknown> = Array.isArray(prefixes) ? prefixes : []
   const usable = [
-    ...new Set(given.filter((p): p is string => typeof p === "string" && p.length > 0 && p.length <= prefixLimit)),
+    ...new Set(
+      given.filter(
+        (p): p is string => typeof p === "string" && p.length > 0 && p.length <= prefixLimit && !/[[\]]/.test(p),
+      ),
+    ),
   ].slice(0, prefixLimit)
   const key = usable.join("\n")
   const cached = lastPrefixPattern.get(key)
   if (usable.length === 0 || cached !== undefined) {
     return cached === undefined ? [] : [cached]
   }
-  // Each prefix is matched as written, never as a pattern.
+  // Each prefix is matched as written, never as a pattern. A built-in prefix starts with a letter,
+  // which a key or an address before it would have taken; a prefix of the caller's may start with
+  // anything (`_acme_`, `.k_`), so it never starts right after a marker, where the first scrub read
+  // what the marker replaced.
   const literal = usable.map((prefix) => prefix.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&"))
-  const pattern = new RegExp(`${keyStart}(?:${literal.join("|")})${keyBody}`, "g")
+  const pattern = new RegExp(
+    String.raw`${keyStart}(?<!\[(?:token|secret|email|card)\])(?:${literal.join("|")})${keyBody}`,
+    "g",
+  )
   lastPrefixPattern.clear()
   lastPrefixPattern.set(key, pattern)
   return [pattern]
@@ -152,12 +165,21 @@ const notParameter = String.raw`(?![A-Za-z_][A-Za-z0-9_.-]{0,40}=[^\s=,;])`
 const credentialAhead = String.raw`(?=${credential}{8}|${credential}{0,6}[0-9=]|${credential}{0,6}[a-z]${credential}{0,6}[A-Z]|${credential}{0,6}[A-Z]${credential}{0,6}[a-z])`
 
 // A credential after `Bearer`, `Basic` or `Token` (in their three spellings) elsewhere than a
-// header, after any space but a line break, unless it is a word of prose or a parameter.
+// header, after any space but a line break, unless it is a word of prose or a parameter. It is the
+// whole run of credential characters, 4 or more, unless a later pattern's marker follows it. A
+// declined run is read past too, never retried inside: a scheme inside it (`Bearer+A1+Bearer+...`)
+// is followed by the rest of the same run, declined alike, and reading it again from each scheme
+// would take time quadratic in its length.
 const schemeCredential = new RegExp(
   String.raw`((?:\b|${afterEscape})(?:Bearer|bearer|BEARER|Basic|basic|BASIC|Token|token|TOKEN)` +
-    String.raw`(?:[^\S\r\n]+${notProse}|(?:%20|\+)${notEncodedProse})${notParameter})${credentialAhead}${credential}{4}${credential}*(?!${credential}|\[(?:secret|email|card)\])`,
+    String.raw`(?:[^\S\r\n]+${notProse}|(?:%20|\+)${notEncodedProse})${notParameter})${credentialAhead}${credential}+`,
   "g",
 )
+const laterMarker = /\[(?:secret|email|card)\]/y
+const replaceSchemeCredential = (match: string, head: string, at: number, text: string): string => {
+  laterMarker.lastIndex = at + match.length
+  return match.length - head.length < 4 || laterMarker.test(text) ? match : `${head}[token]`
+}
 
 // Query, fragment and `;` parameters whose values are secrets, also in a URL encoded into another.
 // A value never starts on a marker (`[secret]`), so a second scrub can't take more than the first.
@@ -179,35 +201,54 @@ const secretName = new RegExp(
 const pairHead = (names: string) => String.raw`(?:${names})(?:\\?["'])?[ \t]*(?:=(?!>)|:(?!=))[ \t]*(?:\\?["'])?`
 
 // Where a named secret's value ends, by what stands before it: inside an escaped string
-// (`\"password\":\"`), at its escape; in double quotes, at the closing quote, past any number of
-// escapes; in single quotes, at the closing quote; bare, at the next space or separator, unless it
-// is only a literal (`null`) or a structure (`{`, `[`).
+// (`\"password\":\"`), at its escaped closing quote; in quotes, at the closing quote; past any number
+// of escapes in both; bare, at the next space or separator, unless it is only a literal (`null`) or
+// a structure (`{`, `[`).
 const secretPairStart = new RegExp(pairHead(valueNames), "gi")
-const inEscapedString = /[^"\\\r\n]+/y
-const inSingleQuotes = /[^'\r\n]+/y
 const bare = /(?!(?:null|true|false|undefined|None|nil)(?:[\s,;&})\]]|$))[^\s"'\\,;&{[=][^\s"'\\,;&]*/y
-const endOf = (value: RegExp, text: string, from: number): number => {
-  value.lastIndex = from
-  return value.test(text) ? value.lastIndex : from
-}
 const secretPairEnd = (text: string, from: number): number => {
   const before = text[from - 1]
-  if (before === '"') {
-    return text[from - 2] === "\\" ? endOf(inEscapedString, text, from) : inDoubleQuotesEnd(text, from)
+  if (before === '"' || before === "'") {
+    return text[from - 2] === "\\" ? inEscapedStringEnd(text, from, before) : inQuotesEnd(text, from, before)
   }
-  return endOf(before === "'" ? inSingleQuotes : bare, text, from)
+  bare.lastIndex = from
+  return bare.test(text) ? bare.lastIndex : from
 }
 
-// Where a value in double quotes ends: at its closing quote or a line break, its escapes (`\"`)
-// read past, however many.
-const inDoubleQuotesEnd = (text: string, from: number): number => {
+// Where a value in quotes ends: at its closing quote or a line break, its escapes (`\"`, `\'`) read
+// past, however many.
+const inQuotesEnd = (text: string, from: number, quote: string): number => {
   let at = from
-  while (at < text.length && text[at] !== '"' && text[at] !== "\r" && text[at] !== "\n") {
+  while (at < text.length && text[at] !== quote && text[at] !== "\r" && text[at] !== "\n") {
     const escaped = text[at] === "\\"
     if (escaped && (at + 1 === text.length || text[at + 1] === "\r" || text[at + 1] === "\n")) {
       break
     }
     at += escaped ? 2 : 1
+  }
+  return at
+}
+
+// Where a value inside an escaped string ends: at the escaped quote that closes it (`\"`), an
+// escaped line break (`\n`), or the end of the string around it (`"`), its own escapes, escaped
+// again (`\\\"`, `\\n`), read past, however many.
+const inEscapedStringEnd = (text: string, from: number, quote: string): number => {
+  let at = from
+  // After the value's own escape (`\\`), the next escape is the character it escapes.
+  let escaping = false
+  while (at < text.length && text[at] !== quote && text[at] !== "\r" && text[at] !== "\n") {
+    if (text[at] !== "\\") {
+      at += 1
+      escaping = false
+      continue
+    }
+    const next = text[at + 1]
+    const ends = next === quote || next === "n" || next === "r"
+    if (next === undefined || next === "\r" || next === "\n" || (ends && !escaping)) {
+      break
+    }
+    escaping = next === "\\" && !escaping
+    at += 2
   }
   return at
 }
@@ -249,8 +290,9 @@ const replaceCard = (match: string): string => {
  * by contract: the caller accepts that a secret in another form passes through.
  *
  * `ownKeyPrefixes` are prefixes of the caller's own keys (`["acme_live_"]`): a prefix followed by
- * 16 or more key characters is a token. At most 100 prefixes of 1 to 100 characters are taken, and
- * the last set's pattern is kept, so passing the same set each time compiles it once.
+ * 16 or more key characters is a token. At most 100 prefixes of 1 to 100 characters, without `[` or
+ * `]`, are taken, and the last set's pattern is kept, so passing the same set each time compiles it
+ * once.
  *
  * Never throws; takes time linear in the text's length, whatever the text is made of, and keeps
  * scrubbing past runs of millions of characters on V8 and JavaScriptCore; scrubbing the result
@@ -269,7 +311,7 @@ export const scrubText = (text: string, ownKeyPrefixes?: ReadonlyArray<string>):
   const withoutHeaders = replaceValues(withKeys, urlPasswordStart, urlPasswordEnds(), "[secret]")
     .replace(authorization, "$1[token]")
     .replace(cookie, "$1[secret]")
-    .replace(schemeCredential, "$1[token]")
+    .replace(schemeCredential, replaceSchemeCredential)
     .replace(secretParameter, "$1[secret]")
   const withoutSecrets = replaceValues(withoutHeaders, secretPairStart, secretPairEnd, "[secret]").replace(
     tokenPair,
